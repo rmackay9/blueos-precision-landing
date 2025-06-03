@@ -1,0 +1,494 @@
+<!--
+    BlueOS Precision Landing Extension HTML file
+
+    The page includes these elements:
+    - Camera Type dropdown to select the camera being used (e.g. Siyi, XFRobot)
+    - RTSP URL of the live camera feed
+    - Save Settings button to save the selected camera type and RTSP URL
+    - "Test" button to view the live video and capture the april tag location
+    - "Run" button to enable the precision landing including sending MAVLink messages to the vehicle.  This setting is persistent
+    - Progress text area to display the status of the latest action
+
+    Each buttons calls function executed by the main.py python backend
+-->
+
+<html>
+    <head>
+        <title>Precision Landing</title>
+        <link rel="icon" href="/favicon.ico" type="image/x-icon">
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+                background-color: #0088CC; /* BlueOS blue background */
+                color: white; /* White text for better contrast on blue */
+            }
+            h1 {
+                margin-bottom: 20px;
+            }
+            .container {
+                max-width: 800px;
+                margin: 0 auto;
+            }
+            .card {
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                margin-bottom: 20px;
+                background-color: white; /* White card on blue background */
+                color: #333; /* Dark text for contrast on white card */
+            }
+            .card-body {
+                padding: 15px;
+            }
+            .row {
+                display: flex;
+                margin-bottom: 10px;
+            }
+            .col-form-label {
+                flex: 0 0 30%;
+            }
+            .col-sm-9 {
+                flex: 0 0 70%;
+            }
+            .form-control, .form-select {
+                width: 100%;
+                padding: 8px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                box-sizing: border-box;
+            }
+            .btn {
+                padding: 8px 16px;
+                border-radius: 4px;
+                cursor: pointer;
+                border: none;
+                margin-right: 5px;
+            }
+            .btn-primary {
+                background-color: #0088CC; /* Use BlueOS blue for primary buttons */
+                color: white;
+            }
+            .btn-success {
+                background-color: #28a745;
+                color: white;
+            }
+            .btn-secondary {
+                background-color: #6c757d;
+                color: white;
+            }
+            textarea {
+                width: 100%;
+                font-family: monospace;
+                resize: vertical; /* Allow vertical resizing only, prevent horizontal resizing */
+                max-width: 100%; /* Ensure textarea doesn't exceed its container */
+                box-sizing: border-box; /* Include padding and border in the element's width */
+            }
+            .mb-3 {
+                margin-bottom: 15px;
+            }
+            .badge {
+                display: inline-block;
+                padding: 0.4em 0.7em;
+                font-size: 0.9em;
+                font-weight: 700;
+                border-radius: 0.25rem;
+                margin-right: 10px;
+            }
+            .badge-info {
+                color: #fff;
+                background-color: #17a2b8;
+            }
+            .file-counts {
+                display: flex;
+                align-items: center;
+            }
+            .btn-sm {
+                padding: 4px 8px;
+                font-size: 0.875rem;
+            }
+            .btn-outline-secondary {
+                color: #6c757d;
+                border: 1px solid #6c757d;
+                background-color: transparent;
+            }
+            .btn-outline-secondary:hover {
+                color: #fff;
+                background-color: #6c757d;
+            }
+            .btn-outline-danger {
+                color: #dc3545;
+                border: 1px solid #dc3545;
+                background-color: transparent;
+            }
+            .btn-outline-danger:hover {
+                color: #fff;
+                background-color: #dc3545;
+            }
+            .btn-outline-primary {
+                color: #0088CC; /* Use BlueOS blue for outline-primary buttons */
+                border: 1px solid #0088CC;
+                background-color: transparent;
+            }
+            .btn-outline-primary:hover {
+                color: #fff;
+                background-color: #0088CC;
+            }
+        </style>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+              integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ=="
+              crossorigin="anonymous" referrerpolicy="no-referrer" />
+    </head>
+    <body>
+        <div class="container">
+            <h1>Precision Landing</h1>
+            <div class="card">
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <!-- Camera Type dropdown -->
+                        <label for="cameraType" class="col-form-label">Camera Type:</label>
+                        <div class="col-sm-9">
+                            <select class="form-select" id="cameraType">
+                                <option value="siyi">Siyi</option>
+                                <option value="xfrobot">XFRobot</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <!-- IP Address input -->
+                        <label for="ipAddress" class="col-form-label">IP Address:</label>
+                        <div class="col-sm-9">
+                            <input type="text" class="form-control" id="ipAddress" value="192.168.144.25">
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <!-- Save Settings button -->
+                        <div class="col-sm-9" style="margin-left: auto;">
+                            <button id="saveSettingsBtn" class="btn btn-secondary">Save Settings</button>
+                            <button id="pingBtn" class="btn btn-primary">Ping Camera</button>
+                            <button id="downloadBtn" class="btn btn-success">Download Images/Videos</button>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <!-- Downloaded Files row -->
+                        <label class="col-form-label">Downloaded Files:</label>
+                        <div class="col-sm-9">
+                            <div class="file-counts">
+                                <!-- Image and Video file counts -->
+                                <span id="imageCount" class="badge badge-info">0 Images</span>
+                                <span id="videoCount" class="badge badge-info">0 Videos</span>
+                                <button id="refreshCountsBtn" class="btn btn-sm btn-outline-secondary">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <!-- Download Zip button -->
+                                <button id="downloadZipBtn" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-download"></i> Download ZIP
+                                </button>
+                                <!-- Delete All Files button -->
+                                <button id="deleteFilesBtn" class="btn btn-sm btn-outline-danger">
+                                    <i class="fas fa-trash-alt"></i> Delete All
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <!-- Progress text area -->
+                        <label for="progressLog" class="col-form-label">Progress:</label>
+                        <div class="col-sm-9">
+                            <textarea id="progressLog" class="form-control" rows="10" readonly></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Camera management logic
+            document.addEventListener('DOMContentLoaded', function() {
+
+                // get document elements which have no listeners
+                const ipAddressInput = document.getElementById('ipAddress');
+                const imageCountElement = document.getElementById('imageCount');
+                const videoCountElement = document.getElementById('videoCount');
+                const progressLog = document.getElementById('progressLog');
+
+                // Camera type change listener
+                const cameraTypeSelect = document.getElementById('cameraType');
+                cameraTypeSelect.addEventListener('change', cameraTypeChanged);
+
+                // Save settings button event listener
+                const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+                saveSettingsBtn.addEventListener('click', saveSettings);
+
+                // Ping camera button event listener
+                const pingBtn = document.getElementById('pingBtn');
+                pingBtn.addEventListener('click', pingCamera);
+
+                // Download images/videos button event listener
+                const downloadBtn = document.getElementById('downloadBtn');
+                downloadBtn.addEventListener('click', downloadImagesVideos);
+
+                // Refresh file counts button event listener
+                const refreshCountsBtn = document.getElementById('refreshCountsBtn');
+                refreshCountsBtn.addEventListener('click', updateFileCounts);
+
+                // Download ZIP button event listener
+                const downloadZipBtn = document.getElementById('downloadZipBtn');
+                downloadZipBtn.addEventListener('click', downloadZip);
+
+                // Delete all files button event listener
+                const deleteFilesBtn = document.getElementById('deleteFilesBtn');
+                deleteFilesBtn.addEventListener('click', deleteAllFiles);
+
+                // Load saved settings and initialise file counts
+                loadSavedSettings();
+                updateFileCounts();
+
+                // Camera Type change handler
+                function cameraTypeChanged() {
+                    // Get IP address for selected camera type
+                    fetch('/camera/get-settings', { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success && data.cameras) {
+                                const cameraType = cameraTypeSelect.value;
+                                const cameraData = data.cameras[cameraType];
+                                if (cameraData && cameraData.ip) {
+                                    ipAddressInput.value = cameraData.ip;
+                                } else {
+                                    // Set default values if no saved values
+                                    if (cameraType === 'siyi') {
+                                        ipAddressInput.value = '192.168.144.25';
+                                    } else if (cameraType === 'xfrobot') {
+                                        ipAddressInput.value = '192.168.144.108';
+                                    }
+                                }
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching camera settings:', error);
+                        });
+                }
+
+                // Save settings button event listener
+                function saveSettings() {
+                    const cameraType = cameraTypeSelect.value;
+                    const ipAddress = ipAddressInput.value;
+
+                    fetch(`/camera/save-settings?type=${cameraType}&ip=${ipAddress}`, {
+                        method: 'POST'
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                progressLog.value = "Settings saved successfully\n";
+                                progressLog.scrollTop = progressLog.scrollHeight;
+                            } else {
+                                progressLog.value = "Failed to save settings\n";
+                                progressLog.scrollTop = progressLog.scrollHeight;
+                            }
+                        })
+                        .catch(error => {
+                            progressLog.value = "Error saving settings\n";
+                            progressLog.scrollTop = progressLog.scrollHeight;
+                            console.error('Error:', error);
+                        });
+                }
+
+                // Load saved settings (only called when page is first loaded)
+                function loadSavedSettings() {
+                    fetch('/camera/get-settings', { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                // Set camera type from last used
+                                if (data.last_used && data.last_used.camera_type) {
+                                    cameraTypeSelect.value = data.last_used.camera_type;
+                                }
+
+                                // Set IP address from last used
+                                if (data.last_used && data.last_used.ip) {
+                                    ipAddressInput.value = data.last_used.ip;
+                                }
+
+                                console.log('Settings loaded successfully');
+                            } else {
+                                console.error('Failed to load settings:', data.message);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error loading settings:', error);
+                        });
+                }
+
+                // Ping camera listener
+                function pingCamera() {
+                    progressLog.value = 'Pinging camera...\n';
+                    fetch(`/camera/ping?ip=${ipAddressInput.value}`, { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            progressLog.value += data.message + '\n';
+                        })
+                        .catch(error => {
+                            progressLog.value += `Error: ${error}\n`;
+                        });
+                }
+
+                // Download images/videos
+                function downloadImagesVideos() {
+                    // Get camera type and ip address from the form
+                    const cameraType = cameraTypeSelect.value;
+                    const ipAddress = ipAddressInput.value;
+
+                    // Log and update user
+                    console.log(`Download button clicked for ${cameraType} camera at ${ipAddress}`);
+                    progressLog.value = `Starting download from ${cameraType} camera at ${ipAddress}\n`;
+                    progressLog.scrollTop = progressLog.scrollHeight;
+
+                    // Setup event source for progress updates
+                    if (window.eventSource) {
+                        console.log("Closing existing EventSource connection");
+                        window.eventSource.close();
+                    }
+
+                    // POST request to download images/videos
+                    fetch(`/camera/download?type=${cameraType}&ip=${ipAddress}`, { method: 'POST' })
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`Server responded with status: ${response.status}`);
+                            }
+
+                            // set up streaming response handling
+                            const reader = response.body.getReader();
+                            const decoder = new TextDecoder();
+
+                            // process the stream of data from the server
+                            function processStream() {
+                                reader.read().then(({ done, value }) => {
+                                    if (done) {
+                                        setTimeout(updateFileCounts, 1000);
+                                        return;
+                                    }
+
+                                    // decode the feedback and remove "data: " and leading newlines
+                                    const feedback_str = decoder.decode(value, { stream: true });
+
+                                    // remove "data: " prefix, leading and trailing newlines, standalone colons
+                                    feedback_str_cleaned = feedback_str.replace(/^data: /gm, '');
+                                    feedback_str_cleaned = feedback_str_cleaned.replace(/\n\n/g, '\n');
+                                    feedback_str_cleaned = feedback_str_cleaned.replace(/^\n+/, '');
+                                    feedback_str_cleaned = feedback_str_cleaned.replace(/^:\s*$/gm, '');
+
+                                    // append the cleaned chunk to the progress log
+                                    progressLog.value += feedback_str_cleaned;
+                                    progressLog.scrollTop = progressLog.scrollHeight;
+
+                                    // continue reading
+                                    processStream();
+                                }).catch(error => {
+                                    progressLog.value += `Error reading stream: ${error}\n`;
+                                    progressLog.scrollTop = progressLog.scrollHeight;
+                                });
+                            }
+
+                            // start processing the stream
+                            processStream();
+                        })
+                        .catch(error => {
+                            progressLog.value += `Error initiating download: ${error}\n`;
+                            progressLog.scrollTop = progressLog.scrollHeight;
+                        });
+                }
+
+                // Update file counts
+                function updateFileCounts() {
+                    // Add spin animation to refresh button
+                    const refreshIcon = refreshCountsBtn.querySelector('i');
+                    refreshIcon.classList.add('fa-spin');
+
+                    fetch('/camera/count-files', { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                // Update the file count displays
+                                imageCountElement.textContent = `${data.images} Images`;
+                                videoCountElement.textContent = `${data.videos} Videos`;
+                            } else {
+                                console.error('Failed to get file counts:', data.message);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error getting file counts:', error);
+                        })
+                        .finally(() => {
+                            // Remove spin animation
+                            setTimeout(() => {
+                                refreshIcon.classList.remove('fa-spin');
+                            }, 500);
+                        });
+                }
+
+                // Function to download ZIP
+                function downloadZip() {
+                    // Check if there are any files to download first
+                    fetch('/camera/count-files', { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                const totalFiles = data.images + data.videos;
+                                if (totalFiles > 0) {
+                                    // files are available, proceed with download
+                                    // create a form element.  This will momentarily open in a new tab before closing
+                                    const downloadzip_form = document.createElement('form');
+                                    downloadzip_form.method = 'POST';
+                                    downloadzip_form.action = '/camera/download-zip';
+                                    downloadzip_form.target = '_blank';
+
+                                    // add the form to the document, submit it, and remove it
+                                    document.body.appendChild(downloadzip_form);
+                                    downloadzip_form.submit();
+                                    document.body.removeChild(downloadzip_form);
+
+                                    // update user
+                                    progressLog.value = "ZIP download started. Check your browser's download manager\n";
+                                    progressLog.scrollTop = progressLog.scrollHeight;
+                                } else {
+                                    // No files available, show message in progress log
+                                    progressLog.value = "No files available to download. Please download files from the camera first";
+                                    progressLog.scrollTop = progressLog.scrollHeight;
+                                }
+                            } else {
+                                // Error getting file counts
+                                progressLog.value += `Error: ${data.message}\n`;
+                                progressLog.scrollTop = progressLog.scrollHeight;
+                            }
+                        })
+                        .catch(error => {
+                            progressLog.value += `Error checking for files to download: ${error}\n`;
+                            progressLog.scrollTop = progressLog.scrollHeight;
+                        });
+                }
+
+                // Delete all files
+                function deleteAllFiles() {
+                    fetch('/camera/delete-files', { method: 'DELETE' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                progressLog.value = "All files deleted\n";
+                                progressLog.scrollTop = progressLog.scrollHeight;
+                                updateFileCounts();
+                            } else {
+                                progressLog.value = "Failed to delete files\n";
+                                progressLog.scrollTop = progressLog.scrollHeight;
+                            }
+                        })
+                        .catch(error => {
+                            progressLog.value = "Error deleting files\n";
+                            progressLog.scrollTop = progressLog.scrollHeight;
+                            console.error('Error:', error);
+                        });
+                }
+            });
+        </script>
+    </body>
+</html>

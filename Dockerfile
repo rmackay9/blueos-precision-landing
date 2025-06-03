@@ -1,26 +1,34 @@
-FROM alpine:3.18.3
+FROM python:3.11-slim
 
-RUN apk update && apk add nginx
+# Install ping utility and other required packages
+RUN apt-get update && \
+    apt-get install -y iputils-ping zlib1g-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-# Move our nginx configuration to the standard nginx path
-COPY files/nginx.conf /etc/nginx/nginx.conf
+COPY app /app
+RUN python -m pip install /app --extra-index-url https://www.piwheels.org/simple && \
+    python -m pip install fastapi uvicorn requests
 
-# Add our static files to a common folder to be provided by nginx
-RUN mkdir -p /site
-COPY files/register_service /site/register_service
-COPY site/ /site/
+EXPOSE 8000/tcp
 
-# Copy everything for your application
-COPY files/entrypoint.sh /entrypoint.sh
+# application version.  This should match the register_service file's version
+LABEL version="0.0.1"
 
-# Add docker configuration
-LABEL permissions='{\
+# Permissions for the container
+# "Binds" section maps the host PC directories to the application directories
+LABEL permissions='\
+{\
   "ExposedPorts": {\
-    "80/tcp": {}\
+    "8000/tcp": {}\
   },\
   "HostConfig": {\
+    "Binds":[\
+      "/usr/blueos/extensions/precision-landing/settings:/app/settings",\
+      "/usr/blueos/extensions/precision-landing/logs:/app/logs"\
+    ],\
+    "ExtraHosts": ["host.docker.internal:host-gateway"],\
     "PortBindings": {\
-      "80/tcp": [\
+      "8000/tcp": [\
         {\
           "HostPort": ""\
         }\
@@ -28,21 +36,28 @@ LABEL permissions='{\
     }\
   }\
 }'
+
 LABEL authors='[\
     {\
-        "name": "John Doe",\
-        "email": "john.doe@gmail.com"\
+        "name": "Randy Mackay",\
+        "email": "rmackay9@yahoo.com"\
     }\
 ]'
-LABEL company='{\
-    "about": "This is just an example",\
-    "name": "ACME Corporation",\
-    "email": "acme@corporation.com"\
-}'
-LABEL readme="https://raw.githubusercontent.com/patrickelectric/blueos-extension-template/master/README.md"
-LABEL type="example"
-LABEL tags='[\
-  "example"\
-]'
 
-ENTRYPOINT ["/entrypoint.sh"]
+LABEL company='{\
+    "about": "ArduPilot",\
+    "name": "ArduPilot",\
+    "email": "rmackay9@yahoo.com"\
+}'
+
+LABEL readme='https://github.com/rmackay9/blueos-precision-landing/blob/main/README.md'
+LABEL type="device-integration"
+LABEL tags='[\
+  "data-collection"\
+]'
+LABEL links='{\
+        "source": "https://github.com/rmackay9/blueos-precision-landing"\
+    }'
+LABEL requirements="core >= 1.1"
+
+ENTRYPOINT ["uvicorn", "app.main:app", "--host", "0.0.0.0"]
