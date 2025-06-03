@@ -98,56 +98,57 @@ def update_camera_rtsp(camera_type, rtsp):
     try:
         settings = get_settings()
 
-        # Update camera IP
+        # Update camera RTSP URL
         if camera_type not in settings['cameras']:
             settings['cameras'][camera_type] = {}
 
-        settings['cameras'][camera_type]['ip'] = ip
+        settings['cameras'][camera_type]['rtsp'] = rtsp
 
         # Update last used settings
         settings['last_used'] = {
             'camera_type': camera_type,
-            'ip': ip
+            'rtsp': rtsp
         }
 
         save_settings(settings)
         return True
     except Exception as e:
-        logger.error(f"Error updating camera IP: {e}")
+        logger.error(f"Error updating camera RTSP URL: {e}")
         return False
 
 
-# get the latest IP address for a specific camera type
-def get_camera_ip(camera_type):
+# get the latest RTSP URL for a specific camera type
+def get_camera_rtsp(camera_type):
     """
-    Get the saved IP address for a camera type
+    Get the saved RTSP URL for a camera type
 
     Args:
-        camera_type (str): The camera type ("siyi" or "xfrobot")
+        camera_type (str): The camera type ("siyi-a8", "siyi-zr10", "siyi-zt6-ir", "siyi-zt6-rgb")
 
     Returns:
-        str: The saved IP address or default if not found
+        str: The saved RTSP URL or default if not found
     """
     settings = get_settings()
 
     # Check if camera type exists in settings
-    if camera_type in settings['cameras'] and 'ip' in settings['cameras'][camera_type]:
-        return settings['cameras'][camera_type]['ip']
+    if camera_type in settings['cameras'] and 'rtsp' in settings['cameras'][camera_type]:
+        return settings['cameras'][camera_type]['rtsp']
 
-    # Return default IP if not found
-    if camera_type == 'siyi':
-        return DEFAULT_SETTINGS['cameras']['siyi']['ip']
+    # Return default RTSP URL if not found
+    if camera_type in DEFAULT_SETTINGS['cameras']:
+        return DEFAULT_SETTINGS['cameras'][camera_type]['rtsp']
     else:
-        return DEFAULT_SETTINGS['cameras']['xfrobot']['ip']
+        # Fallback to siyi-a8 if camera type not found
+        return DEFAULT_SETTINGS['cameras']['siyi-a8']['rtsp']
 
 
-# get the last used camera type and IP address
+# get the last used camera type and RTSP URL
 def get_last_used():
     """
-    Get the last used camera type and IP
+    Get the last used camera type and RTSP URL
 
     Returns:
-        dict: Dictionary with camera_type and ip
+        dict: Dictionary with camera_type and rtsp
     """
     settings = get_settings()
     return settings.get('last_used', DEFAULT_SETTINGS['last_used'])
