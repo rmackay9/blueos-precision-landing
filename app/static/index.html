@@ -72,6 +72,10 @@
                 background-color: #28a745;
                 color: white;
             }
+            .btn-danger {
+                background-color: #dc3545;
+                color: white;
+            }
             .btn-secondary {
                 background-color: #6c757d;
                 color: white;
@@ -85,53 +89,6 @@
             }
             .mb-3 {
                 margin-bottom: 15px;
-            }
-            .badge {
-                display: inline-block;
-                padding: 0.4em 0.7em;
-                font-size: 0.9em;
-                font-weight: 700;
-                border-radius: 0.25rem;
-                margin-right: 10px;
-            }
-            .badge-info {
-                color: #fff;
-                background-color: #17a2b8;
-            }
-            .file-counts {
-                display: flex;
-                align-items: center;
-            }
-            .btn-sm {
-                padding: 4px 8px;
-                font-size: 0.875rem;
-            }
-            .btn-outline-secondary {
-                color: #6c757d;
-                border: 1px solid #6c757d;
-                background-color: transparent;
-            }
-            .btn-outline-secondary:hover {
-                color: #fff;
-                background-color: #6c757d;
-            }
-            .btn-outline-danger {
-                color: #dc3545;
-                border: 1px solid #dc3545;
-                background-color: transparent;
-            }
-            .btn-outline-danger:hover {
-                color: #fff;
-                background-color: #dc3545;
-            }
-            .btn-outline-primary {
-                color: #0088CC; /* Use BlueOS blue for outline-primary buttons */
-                border: 1px solid #0088CC;
-                background-color: transparent;
-            }
-            .btn-outline-primary:hover {
-                color: #fff;
-                background-color: #0088CC;
             }
         </style>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
@@ -148,46 +105,26 @@
                         <label for="cameraType" class="col-form-label">Camera Type:</label>
                         <div class="col-sm-9">
                             <select class="form-select" id="cameraType">
-                                <option value="siyi">Siyi</option>
-                                <option value="xfrobot">XFRobot</option>
+                                <option value="siyi-a8">SIYI A8</option>
+                                <option value="siyi-zr10">SIYI ZR10</option>
+                                <option value="siyi-zt6-ir">SIYI ZT6 IR</option>
+                                <option value="siyi-zt6-rgb">SIYI ZT6 RGB</option>
                             </select>
                         </div>
                     </div>
                     <div class="row mb-3">
-                        <!-- IP Address input -->
-                        <label for="ipAddress" class="col-form-label">IP Address:</label>
+                        <!-- RTSP URL input -->
+                        <label for="rtspUrl" class="col-form-label">RTSP URL:</label>
                         <div class="col-sm-9">
-                            <input type="text" class="form-control" id="ipAddress" value="192.168.144.25">
+                            <input type="text" class="form-control" id="rtspUrl" value="rtsp://192.168.144.25:8554/main.264">
                         </div>
                     </div>
                     <div class="row mb-3">
-                        <!-- Save Settings button -->
+                        <!-- Action buttons -->
                         <div class="col-sm-9" style="margin-left: auto;">
                             <button id="saveSettingsBtn" class="btn btn-secondary">Save Settings</button>
-                            <button id="pingBtn" class="btn btn-primary">Ping Camera</button>
-                            <button id="downloadBtn" class="btn btn-success">Download Images/Videos</button>
-                        </div>
-                    </div>
-                    <div class="row mb-3">
-                        <!-- Downloaded Files row -->
-                        <label class="col-form-label">Downloaded Files:</label>
-                        <div class="col-sm-9">
-                            <div class="file-counts">
-                                <!-- Image and Video file counts -->
-                                <span id="imageCount" class="badge badge-info">0 Images</span>
-                                <span id="videoCount" class="badge badge-info">0 Videos</span>
-                                <button id="refreshCountsBtn" class="btn btn-sm btn-outline-secondary">
-                                    <i class="fas fa-sync-alt"></i> Refresh
-                                </button>
-                                <!-- Download Zip button -->
-                                <button id="downloadZipBtn" class="btn btn-sm btn-outline-primary">
-                                    <i class="fas fa-download"></i> Download ZIP
-                                </button>
-                                <!-- Delete All Files button -->
-                                <button id="deleteFilesBtn" class="btn btn-sm btn-outline-danger">
-                                    <i class="fas fa-trash-alt"></i> Delete All
-                                </button>
-                            </div>
+                            <button id="testBtn" class="btn btn-primary">Test</button>
+                            <button id="runBtn" class="btn btn-success">Run</button>
                         </div>
                     </div>
                     <div class="row mb-3">
@@ -202,13 +139,11 @@
         </div>
 
         <script>
-            // Camera management logic
+            // Precision Landing management logic
             document.addEventListener('DOMContentLoaded', function() {
 
                 // get document elements which have no listeners
-                const ipAddressInput = document.getElementById('ipAddress');
-                const imageCountElement = document.getElementById('imageCount');
-                const videoCountElement = document.getElementById('videoCount');
+                const rtspUrlInput = document.getElementById('rtspUrl');
                 const progressLog = document.getElementById('progressLog');
 
                 // Camera type change listener
@@ -219,62 +154,60 @@
                 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
                 saveSettingsBtn.addEventListener('click', saveSettings);
 
-                // Ping camera button event listener
-                const pingBtn = document.getElementById('pingBtn');
-                pingBtn.addEventListener('click', pingCamera);
+                // Test button event listener
+                const testBtn = document.getElementById('testBtn');
+                testBtn.addEventListener('click', testPrecisionLanding);
 
-                // Download images/videos button event listener
-                const downloadBtn = document.getElementById('downloadBtn');
-                downloadBtn.addEventListener('click', downloadImagesVideos);
+                // Run button event listener
+                const runBtn = document.getElementById('runBtn');
+                runBtn.addEventListener('click', togglePrecisionLanding);
 
-                // Refresh file counts button event listener
-                const refreshCountsBtn = document.getElementById('refreshCountsBtn');
-                refreshCountsBtn.addEventListener('click', updateFileCounts);
-
-                // Download ZIP button event listener
-                const downloadZipBtn = document.getElementById('downloadZipBtn');
-                downloadZipBtn.addEventListener('click', downloadZip);
-
-                // Delete all files button event listener
-                const deleteFilesBtn = document.getElementById('deleteFilesBtn');
-                deleteFilesBtn.addEventListener('click', deleteAllFiles);
-
-                // Load saved settings and initialise file counts
+                // Load saved settings
                 loadSavedSettings();
-                updateFileCounts();
+
+                // Check initial precision landing status
+                checkPrecisionLandingStatus();
 
                 // Camera Type change handler
                 function cameraTypeChanged() {
-                    // Get IP address for selected camera type
-                    fetch('/camera/get-settings', { method: 'POST' })
+                    // Get RTSP URL for selected camera type
+                    fetch('/precision-landing/get-settings', { method: 'POST' })
                         .then(response => response.json())
                         .then(data => {
                             if (data.success && data.cameras) {
                                 const cameraType = cameraTypeSelect.value;
                                 const cameraData = data.cameras[cameraType];
-                                if (cameraData && cameraData.ip) {
-                                    ipAddressInput.value = cameraData.ip;
+                                if (cameraData && cameraData.rtsp) {
+                                    rtspUrlInput.value = cameraData.rtsp;
                                 } else {
-                                    // Set default values if no saved values
-                                    if (cameraType === 'siyi') {
-                                        ipAddressInput.value = '192.168.144.25';
-                                    } else if (cameraType === 'xfrobot') {
-                                        ipAddressInput.value = '192.168.144.108';
-                                    }
+                                    // Set default RTSP URL based on camera type
+                                    setDefaultRtspUrl(cameraType);
                                 }
                             }
                         })
                         .catch(error => {
                             console.error('Error fetching camera settings:', error);
+                            setDefaultRtspUrl(cameraTypeSelect.value);
                         });
+                }
+
+                // Set default RTSP URL based on camera type
+                function setDefaultRtspUrl(cameraType) {
+                    const defaultUrls = {
+                        'siyi-a8': 'rtsp://192.168.144.25:8554/main.264',
+                        'siyi-zr10': 'rtsp://192.168.144.25:8554/main.264',
+                        'siyi-zt6-ir': 'rtsp://192.168.144.25:8554/video1',
+                        'siyi-zt6-rgb': 'rtsp://192.168.144.25:8554/video2'
+                    };
+                    rtspUrlInput.value = defaultUrls[cameraType] || defaultUrls['siyi-a8'];
                 }
 
                 // Save settings button event listener
                 function saveSettings() {
                     const cameraType = cameraTypeSelect.value;
-                    const ipAddress = ipAddressInput.value;
+                    const rtspUrl = rtspUrlInput.value;
 
-                    fetch(`/camera/save-settings?type=${cameraType}&ip=${ipAddress}`, {
+                    fetch(`/precision-landing/save-settings?type=${cameraType}&rtsp=${encodeURIComponent(rtspUrl)}`, {
                         method: 'POST'
                     })
                         .then(response => response.json())
@@ -296,7 +229,7 @@
 
                 // Load saved settings (only called when page is first loaded)
                 function loadSavedSettings() {
-                    fetch('/camera/get-settings', { method: 'POST' })
+                    fetch('/precision-landing/get-settings', { method: 'POST' })
                         .then(response => response.json())
                         .then(data => {
                             if (data.success) {
@@ -305,9 +238,9 @@
                                     cameraTypeSelect.value = data.last_used.camera_type;
                                 }
 
-                                // Set IP address from last used
-                                if (data.last_used && data.last_used.ip) {
-                                    ipAddressInput.value = data.last_used.ip;
+                                // Set RTSP URL from last used
+                                if (data.last_used && data.last_used.rtsp) {
+                                    rtspUrlInput.value = data.last_used.rtsp;
                                 }
 
                                 console.log('Settings loaded successfully');
@@ -320,172 +253,118 @@
                         });
                 }
 
-                // Ping camera listener
-                function pingCamera() {
-                    progressLog.value = 'Pinging camera...\n';
-                    fetch(`/camera/ping?ip=${ipAddressInput.value}`, { method: 'POST' })
-                        .then(response => response.json())
-                        .then(data => {
-                            progressLog.value += data.message + '\n';
-                        })
-                        .catch(error => {
-                            progressLog.value += `Error: ${error}\n`;
-                        });
-                }
-
-                // Download images/videos
-                function downloadImagesVideos() {
-                    // Get camera type and ip address from the form
+                // Test precision landing function
+                function testPrecisionLanding() {
                     const cameraType = cameraTypeSelect.value;
-                    const ipAddress = ipAddressInput.value;
+                    const rtspUrl = rtspUrlInput.value;
 
-                    // Log and update user
-                    console.log(`Download button clicked for ${cameraType} camera at ${ipAddress}`);
-                    progressLog.value = `Starting download from ${cameraType} camera at ${ipAddress}\n`;
+                    progressLog.value = `Starting precision landing test with ${cameraType} camera...\n`;
                     progressLog.scrollTop = progressLog.scrollHeight;
 
-                    // Setup event source for progress updates
-                    if (window.eventSource) {
-                        console.log("Closing existing EventSource connection");
-                        window.eventSource.close();
-                    }
-
-                    // POST request to download images/videos
-                    fetch(`/camera/download?type=${cameraType}&ip=${ipAddress}`, { method: 'POST' })
-                        .then(response => {
-                            if (!response.ok) {
-                                throw new Error(`Server responded with status: ${response.status}`);
+                    fetch(`/precision-landing/test?type=${cameraType}&rtsp=${encodeURIComponent(rtspUrl)}`, {
+                        method: 'POST'
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                progressLog.value += data.message + '\n';
+                            } else {
+                                progressLog.value += `Test failed: ${data.message}\n`;
                             }
-
-                            // set up streaming response handling
-                            const reader = response.body.getReader();
-                            const decoder = new TextDecoder();
-
-                            // process the stream of data from the server
-                            function processStream() {
-                                reader.read().then(({ done, value }) => {
-                                    if (done) {
-                                        setTimeout(updateFileCounts, 1000);
-                                        return;
-                                    }
-
-                                    // decode the feedback and remove "data: " and leading newlines
-                                    const feedback_str = decoder.decode(value, { stream: true });
-
-                                    // remove "data: " prefix, leading and trailing newlines, standalone colons
-                                    feedback_str_cleaned = feedback_str.replace(/^data: /gm, '');
-                                    feedback_str_cleaned = feedback_str_cleaned.replace(/\n\n/g, '\n');
-                                    feedback_str_cleaned = feedback_str_cleaned.replace(/^\n+/, '');
-                                    feedback_str_cleaned = feedback_str_cleaned.replace(/^:\s*$/gm, '');
-
-                                    // append the cleaned chunk to the progress log
-                                    progressLog.value += feedback_str_cleaned;
-                                    progressLog.scrollTop = progressLog.scrollHeight;
-
-                                    // continue reading
-                                    processStream();
-                                }).catch(error => {
-                                    progressLog.value += `Error reading stream: ${error}\n`;
-                                    progressLog.scrollTop = progressLog.scrollHeight;
-                                });
-                            }
-
-                            // start processing the stream
-                            processStream();
+                            progressLog.scrollTop = progressLog.scrollHeight;
                         })
                         .catch(error => {
-                            progressLog.value += `Error initiating download: ${error}\n`;
+                            progressLog.value += `Error during test: ${error}\n`;
                             progressLog.scrollTop = progressLog.scrollHeight;
                         });
                 }
 
-                // Update file counts
-                function updateFileCounts() {
-                    // Add spin animation to refresh button
-                    const refreshIcon = refreshCountsBtn.querySelector('i');
-                    refreshIcon.classList.add('fa-spin');
+                // Toggle precision landing function
+                function togglePrecisionLanding() {
+                    const cameraType = cameraTypeSelect.value;
+                    const rtspUrl = rtspUrlInput.value;
 
-                    fetch('/camera/count-files', { method: 'POST' })
+                    // Check if precision landing is currently running
+                    fetch('/precision-landing/status', { method: 'GET' })
                         .then(response => response.json())
                         .then(data => {
-                            if (data.success) {
-                                // Update the file count displays
-                                imageCountElement.textContent = `${data.images} Images`;
-                                videoCountElement.textContent = `${data.videos} Videos`;
+                            if (data.running) {
+                                // Stop precision landing
+                                stopPrecisionLanding();
                             } else {
-                                console.error('Failed to get file counts:', data.message);
+                                // Start precision landing
+                                startPrecisionLanding(cameraType, rtspUrl);
                             }
                         })
                         .catch(error => {
-                            console.error('Error getting file counts:', error);
-                        })
-                        .finally(() => {
-                            // Remove spin animation
-                            setTimeout(() => {
-                                refreshIcon.classList.remove('fa-spin');
-                            }, 500);
-                        });
-                }
-
-                // Function to download ZIP
-                function downloadZip() {
-                    // Check if there are any files to download first
-                    fetch('/camera/count-files', { method: 'POST' })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success) {
-                                const totalFiles = data.images + data.videos;
-                                if (totalFiles > 0) {
-                                    // files are available, proceed with download
-                                    // create a form element.  This will momentarily open in a new tab before closing
-                                    const downloadzip_form = document.createElement('form');
-                                    downloadzip_form.method = 'POST';
-                                    downloadzip_form.action = '/camera/download-zip';
-                                    downloadzip_form.target = '_blank';
-
-                                    // add the form to the document, submit it, and remove it
-                                    document.body.appendChild(downloadzip_form);
-                                    downloadzip_form.submit();
-                                    document.body.removeChild(downloadzip_form);
-
-                                    // update user
-                                    progressLog.value = "ZIP download started. Check your browser's download manager\n";
-                                    progressLog.scrollTop = progressLog.scrollHeight;
-                                } else {
-                                    // No files available, show message in progress log
-                                    progressLog.value = "No files available to download. Please download files from the camera first";
-                                    progressLog.scrollTop = progressLog.scrollHeight;
-                                }
-                            } else {
-                                // Error getting file counts
-                                progressLog.value += `Error: ${data.message}\n`;
-                                progressLog.scrollTop = progressLog.scrollHeight;
-                            }
-                        })
-                        .catch(error => {
-                            progressLog.value += `Error checking for files to download: ${error}\n`;
+                            progressLog.value += `Error checking status: ${error}\n`;
                             progressLog.scrollTop = progressLog.scrollHeight;
                         });
                 }
 
-                // Delete all files
-                function deleteAllFiles() {
-                    fetch('/camera/delete-files', { method: 'DELETE' })
+                // Start precision landing
+                function startPrecisionLanding(cameraType, rtspUrl) {
+                    progressLog.value += `Starting precision landing with ${cameraType} camera...\n`;
+                    progressLog.scrollTop = progressLog.scrollHeight;
+
+                    fetch(`/precision-landing/start?type=${cameraType}&rtsp=${encodeURIComponent(rtspUrl)}`, {
+                        method: 'POST'
+                    })
                         .then(response => response.json())
                         .then(data => {
                             if (data.success) {
-                                progressLog.value = "All files deleted\n";
-                                progressLog.scrollTop = progressLog.scrollHeight;
-                                updateFileCounts();
+                                progressLog.value += "Precision landing started successfully\n";
+                                runBtn.textContent = "Stop";
+                                runBtn.className = "btn btn-danger";
                             } else {
-                                progressLog.value = "Failed to delete files\n";
-                                progressLog.scrollTop = progressLog.scrollHeight;
+                                progressLog.value += `Failed to start precision landing: ${data.message}\n`;
+                            }
+                            progressLog.scrollTop = progressLog.scrollHeight;
+                        })
+                        .catch(error => {
+                            progressLog.value += `Error starting precision landing: ${error}\n`;
+                            progressLog.scrollTop = progressLog.scrollHeight;
+                        });
+                }
+
+                // Stop precision landing
+                function stopPrecisionLanding() {
+                    progressLog.value += "Stopping precision landing...\n";
+                    progressLog.scrollTop = progressLog.scrollHeight;
+
+                    fetch('/precision-landing/stop', { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                progressLog.value += "Precision landing stopped\n";
+                                runBtn.textContent = "Run";
+                                runBtn.className = "btn btn-success";
+                            } else {
+                                progressLog.value += `Failed to stop precision landing: ${data.message}\n`;
+                            }
+                            progressLog.scrollTop = progressLog.scrollHeight;
+                        })
+                        .catch(error => {
+                            progressLog.value += `Error stopping precision landing: ${error}\n`;
+                            progressLog.scrollTop = progressLog.scrollHeight;
+                        });
+                }
+
+                // Check precision landing status and update button accordingly
+                function checkPrecisionLandingStatus() {
+                    fetch('/precision-landing/status', { method: 'GET' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.running) {
+                                runBtn.textContent = "Stop";
+                                runBtn.className = "btn btn-danger";
+                            } else {
+                                runBtn.textContent = "Run";
+                                runBtn.className = "btn btn-success";
                             }
                         })
                         .catch(error => {
-                            progressLog.value = "Error deleting files\n";
-                            progressLog.scrollTop = progressLog.scrollHeight;
-                            console.error('Error:', error);
+                            console.error('Error checking precision landing status:', error);
                         });
                 }
             });
