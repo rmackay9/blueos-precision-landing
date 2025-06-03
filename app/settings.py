@@ -29,6 +29,9 @@ DEFAULT_SETTINGS = {
     'last_used': {
         'camera_type': 'siyi-a8',
         'rtsp': 'rtsp://192.168.144.25:8554/main.264'
+    },
+    'precision_landing': {
+        'enabled': False
     }
 }
 
@@ -152,3 +155,53 @@ def get_last_used():
     """
     settings = get_settings()
     return settings.get('last_used', DEFAULT_SETTINGS['last_used'])
+
+
+# update the precision landing enabled state
+def update_precision_landing_enabled(enabled):
+    """
+    Update the precision landing enabled state
+
+    Args:
+        enabled (bool): Whether precision landing is enabled
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        settings = get_settings()
+
+        # Ensure precision_landing section exists
+        if 'precision_landing' not in settings:
+            settings['precision_landing'] = {}
+
+        settings['precision_landing']['enabled'] = enabled
+
+        save_settings(settings)
+        logger.debug(f"Updated precision landing enabled state to: {enabled}")
+        return True
+    except Exception as e:
+        logger.error(f"Error updating precision landing enabled state: {e}")
+        return False
+
+
+# get the precision landing enabled state
+def get_precision_landing_enabled():
+    """
+    Get the precision landing enabled state
+
+    Returns:
+        bool: True if precision landing is enabled, False otherwise
+    """
+    try:
+        settings = get_settings()
+
+        # Check if precision_landing section exists
+        if 'precision_landing' in settings and 'enabled' in settings['precision_landing']:
+            return settings['precision_landing']['enabled']
+
+        # Return default if not found
+        return DEFAULT_SETTINGS['precision_landing']['enabled']
+    except Exception as e:
+        logger.error(f"Error getting precision landing enabled state: {e}")
+        return False
