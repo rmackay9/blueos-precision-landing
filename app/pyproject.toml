@@ -10,5 +10,6 @@ classifiers = [
 dependencies = [
     "requests",
     "fastapi",
-    "uvicorn[standard]"
+    "uvicorn[standard]",
+    "opencv-python"
 ]
