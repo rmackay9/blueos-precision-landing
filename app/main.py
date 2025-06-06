@@ -99,35 +99,58 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 10) -> Dict[str, 
 
         logger.info(f"Video capture succeeded with {rtsp_url_extended}")
 
-        # Test frame reading with timeout mechanism (similar to SIYI SDK)
-        start_time = time.time()
-        frame_read_success = False
+        # Test frame reading with separate thread (similar to SIYI SDK)
+        frame_data = {"frame": None, "ret": False, "success": False}
 
-        # Try to read frames for up to timeout_seconds
-        while (time.time() - start_time) < timeout_seconds and not frame_read_success:
-            ret, frame = cap.read()
+        def read_frame_thread():
+            """Thread function to read frames from the video capture"""
+            try:
+                logger.debug("Frame reading thread started")
+                ret, frame = cap.read()
+                frame_data["ret"] = ret
+                frame_data["frame"] = frame
+                if ret and frame is not None:
+                    frame_data["success"] = True
+                    logger.debug("Frame read successful in thread")
+                else:
+                    logger.debug(f"Frame read failed in thread: ret={ret}")
+            except Exception as e:
+                logger.error(f"Exception in frame reading thread: {str(e)}")
 
-            if ret and frame is not None:
-                frame_read_success = True
-                height, width = frame.shape[:2]
-                logger.info(f"Read frame succeeded: {width}x{height}")
+        # Start frame reading in a separate thread
+        import threading
+        frame_thread = threading.Thread(target=read_frame_thread)
+        frame_thread.daemon = True
+        frame_thread.start()
 
-                return {
-                    "success": True,
-                    "message": f"RTSP connection successful ({width}x{height}). Method: {rtsp_url_extended}",
-                    "connection_method": rtsp_url_extended,
-                    "resolution": f"{width}x{height}"
-                }
-            else:
-                logger.debug(f"Read frame failed (ret={ret}), retrying...")
-                time.sleep(0.001)  # Brief pause before retry
+        # Wait for the thread to complete with timeout
+        frame_thread.join(timeout=timeout_seconds)
 
-        # If we get here, frame reading failed
-        return {
-            "success": False,
-            "message": f"Connected but unable to read frames after {timeout_seconds} seconds. Method: {rtsp_url_extended}",
-            "error": "No video data received"
-        }
+        if frame_thread.is_alive():
+            logger.warning("Frame reading thread timed out")
+            return {
+                "success": False,
+                "message": f"Frame reading timed out after {timeout_seconds} seconds. Method: {rtsp_url_extended}",
+                "error": "Frame reading timeout"
+            }
+
+        # Check if frame reading was successful
+        if frame_data["success"] and frame_data["frame"] is not None:
+            height, width = frame_data["frame"].shape[:2]
+            logger.info(f"Read frame succeeded: {width}x{height}")
+
+            return {
+                "success": True,
+                "message": f"RTSP connection successful ({width}x{height}). Method: {rtsp_url_extended}",
+                "connection_method": rtsp_url_extended,
+                "resolution": f"{width}x{height}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Connected but unable to read frames. Method: {rtsp_url_extended}",
+                "error": "No video data received"
+            }
 
     except Exception as e:
         logger.exception(f"Exception during RTSP test: {str(e)}")
