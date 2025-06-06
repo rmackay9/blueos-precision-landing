@@ -51,6 +51,18 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
     import sys
     logger.info(f"Python version: {sys.version}")
 
+    # Log OpenCV version and build information
+    logger.info(f"OpenCV version: {cv2.__version__}")
+    build_info = cv2.getBuildInformation()
+
+    # Extract key build information
+    for line in build_info.split('\n'):
+        line = line.strip()
+        if 'Video I/O:' in line or 'FFMPEG:' in line or 'GStreamer:' in line:
+            logger.info(f"OpenCV build info: {line}")
+        elif line.startswith('FFMPEG:') or line.startswith('GStreamer:'):
+            logger.info(f"OpenCV build info: {line}")
+
     # Try to get GStreamer version
     try:
         import subprocess
