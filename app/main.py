@@ -12,6 +12,9 @@
 import logging.handlers
 import sys
 import asyncio
+import cv2
+import threading
+import time
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +37,48 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(console_handler)
 
 app = FastAPI()
+
+# RTSP connection test function using GStreamer with OpenCV
+def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 10) -> Dict[str, Any]:
+    """
+    Test RTSP connection using GStreamer with OpenCV.
+    Returns connection status and basic stream information.
+    """
+    logger.info(f"Testing RTSP connection to: {rtsp_url}")
+
+    # Create GStreamer pipeline for RTSP
+    # Use hardware decoding if available, fall back to software decoding
+    gst_pipeline = f"rtspsrc location={rtsp_url} latency=41 udp-reconnect=1 timeout=0 do-retransmission=false ! application/x-rtp ! decodebin3 ! queue max-size-buffers=1 leaky=2 ! videoconvert ! video/x-raw,format=BGRA ! appsink"
+
+    cap = None
+    try:
+        # Try to open the video capture with GStreamer backend
+        cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+
+        if not cap.isOpened():
+            logger.warning("Failed to open with GStreamer")
+            return {
+                "success": False,
+                "message": f"Unable to connect to RTSP stream. Pipeline: {gst_pipeline}",
+                "error": "Failed to open video capture"
+            }
+
+        return {
+            "success": True,
+            "message": f"RTSP connection successful. Pipeline: {gst_pipeline}"
+        }
+
+    except Exception as e:
+        logger.exception(f"Exception during RTSP test: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error testing RTSP connection: {str(e)}. Pipeline: {gst_pipeline}",
+            "error": str(e)
+        }
+    finally:
+        if cap is not None:
+            cap.release()
+
 
 # Global variable to track precision landing running state
 # In a real implementation, this might be a more sophisticated state management system
@@ -155,26 +200,40 @@ async def get_precision_landing_enabled_state() -> Dict[str, Any]:
 
 @app.post("/precision-landing/test")
 async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
-    """Test precision landing functionality (placeholder)"""
+    """Test precision landing functionality with RTSP connection"""
     logger.info(f"Testing precision landing with type={type}, rtsp={rtsp}")
 
     try:
-        # TODO: Implement actual test functionality here
-        # This would include:
-        # - Connecting to the RTSP stream
-        # - Displaying the video feed with AprilTag detection overlay
-        # - Showing detected tag position and orientation
+        # Run the RTSP connection test in a thread to avoid blocking
+        def run_test():
+            return test_rtsp_connection(rtsp, timeout_seconds=15)
 
-        # For now, this is a placeholder
-        await asyncio.sleep(1)  # Simulate some processing time
+        # Run the test in an executor to avoid blocking the async loop
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_test)
+            result = future.result(timeout=20)  # 20 second total timeout
 
+        if result["success"]:
+            logger.info(f"RTSP test successful for {type}: {result['message']}")
+            # Add camera type to the response
+            result["camera_type"] = type
+            result["rtsp_url"] = rtsp
+        else:
+            logger.warning(f"RTSP test failed for {type}: {result['message']}")
+
+        return result
+
+    except concurrent.futures.TimeoutError:
+        logger.error(f"RTSP test timed out for {type} camera")
         return {
-            "success": True,
-            "message": f"Test completed successfully for {type} camera (placeholder)"
+            "success": False,
+            "message": "Test timed out - unable to connect to camera within 20 seconds",
+            "error": "Connection timeout"
         }
     except Exception as e:
         logger.exception(f"Error during precision landing test: {str(e)}")
-        return {"success": False, "message": f"Test failed: {str(e)}"}
+        return {"success": False, "message": f"Test failed2: {str(e)}"}
 
 
 @app.post("/precision-landing/start")
