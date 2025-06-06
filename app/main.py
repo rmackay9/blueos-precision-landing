@@ -67,18 +67,23 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 10) -> Dict[str, 
     rtsp_url_extended = ""
 
     try:
-        # Method 1: Try with UDP transport first (SIYI SDK approach)
-        logger.info("Attempting connection with UDP transport (SIYI SDK method)")
+        # Log the attempt to connect
+        logger.info("Attempting connection...")
+
+        # non-working GStreamer pipeline below
         #rtsp_url_extended = (
         #    f"rtspsrc location={rtsp_url} latency=100 ! "
         #    "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
         #)
-        rtsp_url_extended = rtsp_url
+        # cap = cv2.VideoCapture(rtsp_url_extended, cv2.CAP_GSTREAMER)
 
-        # Initialize the FFmpeg-based VideoCapture (as used in SIYI SDK)
+        # partially working FFMPEG pipeline (connects but no frames read)
+        #rtsp_url_extended = rtsp_url
         #cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-        #cap = cv2.VideoCapture(rtsp_url_extended, cv2.CAP_GSTREAMER)
-        cap = cv2.VideoCapture(rtsp_url_extended)
+
+        # partially working GStreamer pipeline (connects but no frames read)
+        rtsp_url_extended = f"rtspsrc location={rtsp_url} latency=41 udp-reconnect=1 timeout=0 do-retransmission=false ! application/x-rtp ! decodebin3 ! queue max-size-buffers=1 leaky=2 ! videoconvert ! video/x-raw,format=BGRA ! appsink"
+        cap = cv2.VideoCapture(rtsp_url_extended, cv2.CAP_GSTREAMER)
 
         # Apply SIYI SDK's proven settings
         #cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
