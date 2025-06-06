@@ -14,21 +14,21 @@ SETTINGS_FILE = Path('/app/settings/precision-landing-settings.json')
 DEFAULT_SETTINGS = {
     'cameras': {
         'siyi-a8': {
-            'rtsp': 'rtsp://192.168.144.25:8554/main.264'
+            'rtsp': 'rtsp://192.168.87.200:8554/main.264'
         },
         'siyi-zr10': {
-            'rtsp': 'rtsp://192.168.144.25:8554/main.264'
+            'rtsp': 'rtsp://192.168.87.200:8554/main.264'
         },
         'siyi-zt6-ir': {
-            'rtsp': 'rtsp://192.168.144.25:8554/video1'
+            'rtsp': 'rtsp://192.168.87.200:8554/video1'
         },
         'siyi-zt6-rgb': {
-            'rtsp': 'rtsp://192.168.144.25:8554/video2'
+            'rtsp': 'rtsp://192.168.87.200:8554/video2'
         }
     },
     'last_used': {
         'camera_type': 'siyi-a8',
-        'rtsp': 'rtsp://192.168.144.25:8554/main.264'
+        'rtsp': 'rtsp://192.168.87.200:8554/main.264'
     },
     'precision_landing': {
         'enabled': False

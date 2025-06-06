@@ -116,7 +116,7 @@
                         <!-- RTSP URL input -->
                         <label for="rtspUrl" class="col-form-label">RTSP URL:</label>
                         <div class="col-sm-9">
-                            <input type="text" class="form-control" id="rtspUrl" value="rtsp://192.168.144.25:8554/main.264">
+                            <input type="text" class="form-control" id="rtspUrl" value="rtsp://192.168.87.200:8554/main.264">
                         </div>
                     </div>
                     <div class="row mb-3">
@@ -194,10 +194,10 @@
                 // Set default RTSP URL based on camera type
                 function setDefaultRtspUrl(cameraType) {
                     const defaultUrls = {
-                        'siyi-a8': 'rtsp://192.168.144.25:8554/main.264',
-                        'siyi-zr10': 'rtsp://192.168.144.25:8554/main.264',
-                        'siyi-zt6-ir': 'rtsp://192.168.144.25:8554/video1',
-                        'siyi-zt6-rgb': 'rtsp://192.168.144.25:8554/video2'
+                        'siyi-a8': 'rtsp://192.168.87.200:8554/main.264',
+                        'siyi-zr10': 'rtsp://192.168.87.200:8554/main.264',
+                        'siyi-zt6-ir': 'rtsp://192.168.87.200:8554/video1',
+                        'siyi-zt6-rgb': 'rtsp://192.168.87.200:8554/video2'
                     };
                     rtspUrlInput.value = defaultUrls[cameraType] || defaultUrls['siyi-a8'];
                 }
