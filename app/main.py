@@ -47,32 +47,54 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 10) -> Dict[str, 
     """
     logger.info(f"Testing RTSP connection to: {rtsp_url}")
 
+    # Log system information for debugging
+    import sys
+    logger.info(f"Python version: {sys.version}")
+
+    # Try to get GStreamer version
+    try:
+        import subprocess
+        result = subprocess.run(['gst-launch-1.0', '--version'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            gst_version = result.stdout.split('\n')[0]
+            logger.info(f"GStreamer version: {gst_version}")
+        else:
+            logger.info("GStreamer version: Could not determine (gst-launch-1.0 failed)")
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+        logger.info(f"GStreamer version: Could not determine ({str(e)})")
+
     cap = None
-    connection_method = ""
+    rtsp_url_extended = ""
 
     try:
         # Method 1: Try with UDP transport first (SIYI SDK approach)
         logger.info("Attempting connection with UDP transport (SIYI SDK method)")
-        connection_method = f"FFmpeg UDP: {rtsp_url}"
+        #rtsp_url_extended = (
+        #    f"rtspsrc location={rtsp_url} latency=100 ! "
+        #    "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
+        #)
+        rtsp_url_extended = rtsp_url
 
         # Initialize the FFmpeg-based VideoCapture (as used in SIYI SDK)
-        cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+        #cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+        #cap = cv2.VideoCapture(rtsp_url_extended, cv2.CAP_GSTREAMER)
+        cap = cv2.VideoCapture(rtsp_url_extended)
 
         # Apply SIYI SDK's proven settings
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution to reduce data size
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
+        #cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
+        #cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution to reduce data size
+        #cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        #cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
 
         if not cap.isOpened():
             logger.warning("Connection failed")
             return {
                 "success": False,
-                "message": f"Unable to connect to RTSP stream. Last tried: {connection_method}",
+                "message": f"Video capture failed with {rtsp_url_extended}",
                 "error": "Failed to open video capture"
             }
 
-        logger.info(f"Video capture opened successfully with {connection_method}")
+        logger.info(f"Video capture succeeded with {rtsp_url_extended}")
 
         # Test frame reading with timeout mechanism (similar to SIYI SDK)
         start_time = time.time()
@@ -85,22 +107,22 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 10) -> Dict[str, 
             if ret and frame is not None:
                 frame_read_success = True
                 height, width = frame.shape[:2]
-                logger.info(f"Successfully read frame: {width}x{height}")
+                logger.info(f"Read frame succeeded: {width}x{height}")
 
                 return {
                     "success": True,
-                    "message": f"RTSP connection successful ({width}x{height}). Method: {connection_method}",
-                    "connection_method": connection_method,
+                    "message": f"RTSP connection successful ({width}x{height}). Method: {rtsp_url_extended}",
+                    "connection_method": rtsp_url_extended,
                     "resolution": f"{width}x{height}"
                 }
             else:
-                logger.debug(f"Frame read attempt failed (ret={ret}), retrying...")
+                logger.debug(f"Read frame failed (ret={ret}), retrying...")
                 time.sleep(0.001)  # Brief pause before retry
 
         # If we get here, frame reading failed
         return {
             "success": False,
-            "message": f"Connected but unable to read frames after {timeout_seconds} seconds. Method: {connection_method}",
+            "message": f"Connected but unable to read frames after {timeout_seconds} seconds. Method: {rtsp_url_extended}",
             "error": "No video data received"
         }
 
@@ -108,7 +130,7 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 10) -> Dict[str, 
         logger.exception(f"Exception during RTSP test: {str(e)}")
         return {
             "success": False,
-            "message": f"Error testing RTSP connection: {str(e)}. Method: {connection_method}",
+            "message": f"Error testing RTSP connection: {str(e)}. Method: {rtsp_url_extended}",
             "error": str(e)
         }
     finally:
