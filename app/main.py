@@ -38,41 +38,77 @@ logger.addHandler(console_handler)
 
 app = FastAPI()
 
-# RTSP connection test function using GStreamer with OpenCV
+# RTSP connection test function using SIYI SDK's proven approach
 def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 10) -> Dict[str, Any]:
     """
-    Test RTSP connection using GStreamer with OpenCV.
+    Test RTSP connection using SIYI SDK's proven approach with OpenCV FFmpeg backend.
+    Based on the working implementation from https://github.com/mzahana/siyi_sdk
     Returns connection status and basic stream information.
     """
     logger.info(f"Testing RTSP connection to: {rtsp_url}")
 
-    # Create GStreamer pipeline for RTSP
-    # Use hardware decoding if available, fall back to software decoding
-    gst_pipeline = f"rtspsrc location={rtsp_url} latency=41 udp-reconnect=1 timeout=0 do-retransmission=false ! application/x-rtp ! decodebin3 ! queue max-size-buffers=1 leaky=2 ! videoconvert ! video/x-raw,format=BGRA ! appsink"
-
     cap = None
+    connection_method = ""
+
     try:
-        # Try to open the video capture with GStreamer backend
-        cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+        # Method 1: Try with UDP transport first (SIYI SDK approach)
+        logger.info("Attempting connection with UDP transport (SIYI SDK method)")
+        connection_method = f"FFmpeg UDP: {rtsp_url}"
+
+        # Initialize the FFmpeg-based VideoCapture (as used in SIYI SDK)
+        cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+
+        # Apply SIYI SDK's proven settings
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution to reduce data size
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
 
         if not cap.isOpened():
-            logger.warning("Failed to open with GStreamer")
+            logger.warning("Connection failed")
             return {
                 "success": False,
-                "message": f"Unable to connect to RTSP stream. Pipeline: {gst_pipeline}",
+                "message": f"Unable to connect to RTSP stream. Last tried: {connection_method}",
                 "error": "Failed to open video capture"
             }
 
+        logger.info(f"Video capture opened successfully with {connection_method}")
+
+        # Test frame reading with timeout mechanism (similar to SIYI SDK)
+        start_time = time.time()
+        frame_read_success = False
+
+        # Try to read frames for up to timeout_seconds
+        while (time.time() - start_time) < timeout_seconds and not frame_read_success:
+            ret, frame = cap.read()
+
+            if ret and frame is not None:
+                frame_read_success = True
+                height, width = frame.shape[:2]
+                logger.info(f"Successfully read frame: {width}x{height}")
+
+                return {
+                    "success": True,
+                    "message": f"RTSP connection successful ({width}x{height}). Method: {connection_method}",
+                    "connection_method": connection_method,
+                    "resolution": f"{width}x{height}"
+                }
+            else:
+                logger.debug(f"Frame read attempt failed (ret={ret}), retrying...")
+                time.sleep(0.001)  # Brief pause before retry
+
+        # If we get here, frame reading failed
         return {
-            "success": True,
-            "message": f"RTSP connection successful. Pipeline: {gst_pipeline}"
+            "success": False,
+            "message": f"Connected but unable to read frames after {timeout_seconds} seconds. Method: {connection_method}",
+            "error": "No video data received"
         }
 
     except Exception as e:
         logger.exception(f"Exception during RTSP test: {str(e)}")
         return {
             "success": False,
-            "message": f"Error testing RTSP connection: {str(e)}. Pipeline: {gst_pipeline}",
+            "message": f"Error testing RTSP connection: {str(e)}. Method: {connection_method}",
             "error": str(e)
         }
     finally:
@@ -206,13 +242,13 @@ async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
     try:
         # Run the RTSP connection test in a thread to avoid blocking
         def run_test():
-            return test_rtsp_connection(rtsp, timeout_seconds=15)
+            return test_rtsp_connection(rtsp, timeout_seconds=60)
 
         # Run the test in an executor to avoid blocking the async loop
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(run_test)
-            result = future.result(timeout=20)  # 20 second total timeout
+            result = future.result(timeout=60)  # 60 second total timeout
 
         if result["success"]:
             logger.info(f"RTSP test successful for {type}: {result['message']}")
@@ -228,7 +264,7 @@ async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
         logger.error(f"RTSP test timed out for {type} camera")
         return {
             "success": False,
-            "message": "Test timed out - unable to connect to camera within 20 seconds",
+            "message": "Test timed out - unable to connect to camera within 60 seconds",
             "error": "Connection timeout"
         }
     except Exception as e:
