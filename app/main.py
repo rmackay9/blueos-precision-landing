@@ -89,6 +89,9 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
 
+        # check if the capture is opened successfully
+        logger.info("Checking connection...")
+
         if not cap.isOpened():
             logger.warning("Connection failed")
             return {
