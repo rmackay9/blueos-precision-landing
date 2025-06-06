@@ -96,10 +96,6 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
         # partially working FFMPEG pipeline (connects but no frames read)
         rtsp_url_extended = rtsp_url
         cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution to reduce data size
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
 
         # check if the capture is opened successfully
         logger.info("Checking connection...")
@@ -111,6 +107,11 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
                 "message": f"Video capture failed with {rtsp_url_extended}",
                 "error": "Failed to open video capture"
             }
+
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution to reduce data size
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
 
         logger.info(f"Video capture succeeded with {rtsp_url_extended}")
 
