@@ -39,7 +39,7 @@ logger.addHandler(console_handler)
 app = FastAPI()
 
 # RTSP connection test function using SIYI SDK's proven approach
-def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 10) -> Dict[str, Any]:
+def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str, Any]:
     """
     Test RTSP connection using SIYI SDK's proven approach with OpenCV FFmpeg backend.
     Based on the working implementation from https://github.com/mzahana/siyi_sdk
@@ -290,13 +290,13 @@ async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
     try:
         # Run the RTSP connection test in a thread to avoid blocking
         def run_test():
-            return test_rtsp_connection(rtsp, timeout_seconds=60)
+            return test_rtsp_connection(rtsp, timeout_seconds=240)
 
         # Run the test in an executor to avoid blocking the async loop
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(run_test)
-            result = future.result(timeout=60)  # 60 second total timeout
+            result = future.result(timeout=240)  # 240 second total timeout (4 minutes)
 
         if result["success"]:
             logger.info(f"RTSP test successful for {type}: {result['message']}")
@@ -312,7 +312,7 @@ async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
         logger.error(f"RTSP test timed out for {type} camera")
         return {
             "success": False,
-            "message": "Test timed out - unable to connect to camera within 60 seconds",
+            "message": "Test timed out - unable to connect to camera within 240 seconds (4 minutes)",
             "error": "Connection timeout"
         }
     except Exception as e:
