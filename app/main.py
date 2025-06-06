@@ -77,19 +77,17 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 10) -> Dict[str, 
         #)
         # cap = cv2.VideoCapture(rtsp_url_extended, cv2.CAP_GSTREAMER)
 
+        # non-working GStreamer pipeline (connects but no frames read)
+        #rtsp_url_extended = f"rtspsrc location={rtsp_url} latency=41 udp-reconnect=1 timeout=0 do-retransmission=false ! application/x-rtp ! decodebin3 ! queue max-size-buffers=1 leaky=2 ! videoconvert ! video/x-raw,format=BGRA ! appsink"
+        #cap = cv2.VideoCapture(rtsp_url_extended, cv2.CAP_GSTREAMER)
+
         # partially working FFMPEG pipeline (connects but no frames read)
-        #rtsp_url_extended = rtsp_url
-        #cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-
-        # partially working GStreamer pipeline (connects but no frames read)
-        rtsp_url_extended = f"rtspsrc location={rtsp_url} latency=41 udp-reconnect=1 timeout=0 do-retransmission=false ! application/x-rtp ! decodebin3 ! queue max-size-buffers=1 leaky=2 ! videoconvert ! video/x-raw,format=BGRA ! appsink"
-        cap = cv2.VideoCapture(rtsp_url_extended, cv2.CAP_GSTREAMER)
-
-        # Apply SIYI SDK's proven settings
-        #cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
-        #cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution to reduce data size
-        #cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        #cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
+        rtsp_url_extended = rtsp_url
+        cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution to reduce data size
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
 
         if not cap.isOpened():
             logger.warning("Connection failed")
