@@ -14,25 +14,25 @@ SETTINGS_FILE = Path('/app/settings/precision-landing-settings.json')
 DEFAULT_SETTINGS = {
     'cameras': {
         'siyi-a8': {
-            'rtsp': 'rtsp://192.168.87.200:8554/main.264',
+            'rtsp': 'rtsp://192.168.144.25:8554/main.264',
             'horizontal_fov': 81
         },
         'siyi-zr10': {
-            'rtsp': 'rtsp://192.168.87.200:8554/main.264',
+            'rtsp': 'rtsp://192.168.144.25:8554/main.264',
             'horizontal_fov': 62
         },
         'siyi-zt6-ir': {
-            'rtsp': 'rtsp://192.168.87.200:8554/video1',
+            'rtsp': 'rtsp://192.168.144.25:8554/video1',
             'horizontal_fov': 32
         },
         'siyi-zt6-rgb': {
-            'rtsp': 'rtsp://192.168.87.200:8554/video2',
+            'rtsp': 'rtsp://192.168.144.25:8554/video2',
             'horizontal_fov': 85
         }
     },
     'last_used': {
         'camera_type': 'siyi-a8',
-        'rtsp': 'rtsp://192.168.87.200:8554/main.264',
+        'rtsp': 'rtsp://192.168.144.25:8554/main.264',
         'horizontal_fov': 81
     },
     'precision_landing': {

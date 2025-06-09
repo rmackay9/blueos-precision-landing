@@ -80,7 +80,7 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
         if camera_type is None or rtsp_url is None:
             last_used = settings.get_last_used()
             camera_type = camera_type or last_used.get("camera_type", "siyi-a8")
-            rtsp_url = rtsp_url or last_used.get("rtsp", "rtsp://192.168.87.200:8554/main.264")
+            rtsp_url = rtsp_url or last_used.get("rtsp", "rtsp://192.168.144.25:8554/main.264")
 
         logger.info(f"Precision landing using camera: {camera_type}, RTSP: {rtsp_url}")
 
