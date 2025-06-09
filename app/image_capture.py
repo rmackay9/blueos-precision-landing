@@ -26,6 +26,14 @@ except ImportError as e:
     APRIL_TAGS_AVAILABLE = False
     april_tags = None
 
+# Import settings module
+try:
+    from app import settings
+    logger.info("Settings module imported successfully")
+except ImportError as e:
+    logger.warning(f"Settings module not available: {str(e)}")
+    settings = None
+
 
 def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str, Any]:
     """
@@ -145,7 +153,15 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
             # Perform AprilTag detection on the captured frame if available
             if APRIL_TAGS_AVAILABLE and april_tags is not None:
                 try:
-                    detection_result = april_tags.detect_april_tags(image = frame_data["frame"], tag_family="tag36h11")
+                    # Get AprilTag family from settings
+                    apriltag_family = "tag36h11"  # default
+                    if settings is not None:
+                        try:
+                            apriltag_family = settings.get_apriltag_family()
+                        except Exception as e:
+                            logger.warning(f"Could not get AprilTag family from settings: {e}")
+
+                    detection_result = april_tags.detect_april_tags(image = frame_data["frame"], tag_family=apriltag_family)
                 except Exception as e:
                     logger.error(f"Error during AprilTag detection: {str(e)}")
                     detection_result = {
@@ -232,8 +248,16 @@ def capture_frame_from_stream(rtsp_url: str, timeout_seconds: int = 30) -> Dict[
         if ret and frame is not None:
             height, width = frame.shape[:2]
 
+            # Get AprilTag family from settings
+            apriltag_family = "tag36h11"  # default
+            if settings is not None:
+                try:
+                    apriltag_family = settings.get_apriltag_family()
+                except Exception as e:
+                    logger.warning(f"Could not get AprilTag family from settings: {e}")
+
             # Perform AprilTag detection on the captured frame
-            detection_result = april_tags.detect_april_tags(frame)
+            detection_result = april_tags.detect_april_tags(frame, tag_family=apriltag_family)
 
             # Use augmented image if AprilTag detection was successful, otherwise use original
             if detection_result["success"] and detection_result.get("augmented_image_base64"):

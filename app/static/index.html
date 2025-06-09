@@ -120,6 +120,41 @@
                         </div>
                     </div>
                     <div class="row mb-3">
+                        <!-- Horizontal FOV input -->
+                        <label for="horizontalFov" class="col-form-label">Horizontal FOV (°):</label>
+                        <div class="col-sm-9">
+                            <input type="number" class="form-control" id="horizontalFov" value="81" min="1" max="180" step="0.1">
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <!-- AprilTag Family dropdown -->
+                        <label for="apriltagFamily" class="col-form-label">AprilTag Family:</label>
+                        <div class="col-sm-9">
+                            <select class="form-control" id="apriltagFamily">
+                                <option value="tag36h11">tag36h11</option>
+                                <option value="tag25h9">tag25h9</option>
+                                <option value="tag16h5">tag16h5</option>
+                                <option value="tagCircle21h7">tagCircle21h7</option>
+                                <option value="tagStandard41h12">tagStandard41h12</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <!-- AprilTag ID input -->
+                        <label for="tagId" class="col-form-label">AprilTag ID:</label>
+                        <div class="col-sm-9">
+                            <input type="number" class="form-control" id="tagId" value="-1" min="-1" max="9999">
+                            <small class="form-text text-muted">Use -1 to accept any AprilTag ID, or specify a specific ID (0-9999)</small>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <!-- Flight Controller SysID input -->
+                        <label for="flightControllerSysId" class="col-form-label">Flight Controller SysID:</label>
+                        <div class="col-sm-9">
+                            <input type="number" class="form-control" id="flightControllerSysId" value="1" min="1" max="255">
+                        </div>
+                    </div>
+                    <div class="row mb-3">
                         <!-- Action buttons -->
                         <div class="col-sm-9" style="margin-left: auto;">
                             <button id="saveSettingsBtn" class="btn btn-secondary">Save Settings</button>
@@ -152,6 +187,10 @@
 
                 // get document elements which have no listeners
                 const rtspUrlInput = document.getElementById('rtspUrl');
+                const horizontalFovInput = document.getElementById('horizontalFov');
+                const apriltagFamilySelect = document.getElementById('apriltagFamily');
+                const tagIdInput = document.getElementById('tagId');
+                const flightControllerSysIdInput = document.getElementById('flightControllerSysId');
                 const progressLog = document.getElementById('progressLog');
 
                 // Camera type change listener
@@ -182,7 +221,7 @@
 
                 // Camera Type change handler
                 function cameraTypeChanged() {
-                    // Get RTSP URL for selected camera type
+                    // Get RTSP URL and FOV for selected camera type
                     fetch('/precision-landing/get-settings', { method: 'POST' })
                         .then(response => response.json())
                         .then(data => {
@@ -195,11 +234,18 @@
                                     // Set default RTSP URL based on camera type
                                     setDefaultRtspUrl(cameraType);
                                 }
+                                if (cameraData && cameraData.horizontal_fov !== undefined) {
+                                    horizontalFovInput.value = cameraData.horizontal_fov;
+                                } else {
+                                    // Set default FOV based on camera type
+                                    setDefaultFov(cameraType);
+                                }
                             }
                         })
                         .catch(error => {
                             console.error('Error fetching camera settings:', error);
                             setDefaultRtspUrl(cameraTypeSelect.value);
+                            setDefaultFov(cameraTypeSelect.value);
                         });
                 }
 
@@ -214,12 +260,36 @@
                     rtspUrlInput.value = defaultUrls[cameraType] || defaultUrls['siyi-a8'];
                 }
 
+                // Set default FOV based on camera type
+                function setDefaultFov(cameraType) {
+                    const defaultFovs = {
+                        'siyi-a8': 81,
+                        'siyi-zr10': 62,
+                        'siyi-zt6-ir': 32,
+                        'siyi-zt6-rgb': 85
+                    };
+                    horizontalFovInput.value = defaultFovs[cameraType] || defaultFovs['siyi-a8'];
+                }
+
                 // Save settings button event listener
                 function saveSettings() {
                     const cameraType = cameraTypeSelect.value;
                     const rtspUrl = rtspUrlInput.value;
+                    const horizontalFov = parseFloat(horizontalFovInput.value);
+                    const apriltagFamily = apriltagFamilySelect.value;
+                    const tagId = parseInt(tagIdInput.value) || 0;
+                    const flightControllerSysId = parseInt(flightControllerSysIdInput.value) || 1;
 
-                    fetch(`/precision-landing/save-settings?type=${cameraType}&rtsp=${encodeURIComponent(rtspUrl)}`, {
+                    const params = new URLSearchParams({
+                        type: cameraType,
+                        rtsp: rtspUrl,
+                        fov: horizontalFov,
+                        apriltag_family: apriltagFamily,
+                        tag_id: tagId,
+                        flight_controller_sysid: flightControllerSysId
+                    });
+
+                    fetch(`/precision-landing/save-settings?${params.toString()}`, {
                         method: 'POST'
                     })
                         .then(response => response.json())
@@ -253,6 +323,29 @@
                                 // Set RTSP URL from last used
                                 if (data.last_used && data.last_used.rtsp) {
                                     rtspUrlInput.value = data.last_used.rtsp;
+                                }
+
+                                // Set FOV from last used
+                                if (data.last_used && data.last_used.horizontal_fov !== undefined) {
+                                    horizontalFovInput.value = data.last_used.horizontal_fov;
+                                } else {
+                                    // Set default FOV for current camera type
+                                    setDefaultFov(cameraTypeSelect.value);
+                                }
+
+                                // Set AprilTag settings
+                                if (data.apriltag) {
+                                    if (data.apriltag.family) {
+                                        apriltagFamilySelect.value = data.apriltag.family;
+                                    }
+                                    if (data.apriltag.target_id !== undefined) {
+                                        tagIdInput.value = data.apriltag.target_id;
+                                    }
+                                }
+
+                                // Set MAVLink settings
+                                if (data.mavlink && data.mavlink.flight_controller_sysid !== undefined) {
+                                    flightControllerSysIdInput.value = data.mavlink.flight_controller_sysid;
                                 }
 
                                 console.log('Settings loaded successfully');

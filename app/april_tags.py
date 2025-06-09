@@ -152,17 +152,6 @@ def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11") -> Dict[s
             center_int = (int(center[0]), int(center[1]))
             cv2.circle(augmented_image, center_int, 5, (0, 0, 255), -1)
 
-            # Draw tag ID text
-            text_position = (int(center[0] - 20), int(center[1] - 20))
-            cv2.putText(augmented_image, f"ID:{tag_id}", text_position,
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-
-            # Draw size information
-            size_text = f"Size:{relative_size:.3f}"
-            size_position = (int(center[0] - 30), int(center[1] + 30))
-            cv2.putText(augmented_image, size_text, size_position,
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-
         # Encode augmented image as base64
         _, buffer = cv2.imencode('.jpg', augmented_image)
         augmented_image_base64 = base64.b64encode(buffer).decode('utf-8')

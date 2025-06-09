@@ -16,6 +16,14 @@ import json
 # Get logger
 logger = logging.getLogger("precision-landing")
 
+# Import settings module
+try:
+    from app import settings
+    logger.info("Settings module imported successfully")
+except ImportError as e:
+    logger.warning(f"Settings module not available: {str(e)}")
+    settings = None
+
 # MAV2Rest default endpoint (BlueOS standard)
 MAV2REST_ENDPOINT = "http://host.docker.internal:6040"
 
@@ -57,12 +65,20 @@ class LandingTargetSender:
             mav2rest_endpoint: MAV2Rest API endpoint URL
         """
         self.mav2rest_endpoint = mav2rest_endpoint
+
+        # Get target system ID from settings
         self.target_system = 1  # Default target system ID
+        if settings is not None:
+            try:
+                self.target_system = settings.get_mavlink_flight_controller_sysid()
+            except Exception as e:
+                logger.warning(f"Could not get flight controller SysID from settings: {e}")
+
         self.target_component = 1  # Default target component ID
         self.last_send_time = 0
         self.min_send_interval = 0.1  # Minimum interval between messages (100ms)
 
-        logger.info(f"LandingTargetSender initialized with endpoint: {mav2rest_endpoint}")
+        logger.info(f"LandingTargetSender initialized with endpoint: {mav2rest_endpoint}, target_system: {self.target_system}")
 
     def test_connection(self) -> Dict[str, Any]:
         """
@@ -197,6 +213,27 @@ class LandingTargetSender:
                 "unexpected_error": True
             }
 
+    def update_target_system_id(self, target_system: int):
+        """
+        Update the target system ID
+
+        Args:
+            target_system: New target system ID
+        """
+        self.target_system = target_system
+        logger.info(f"Updated target system ID to: {target_system}")
+
+    def refresh_settings(self):
+        """
+        Refresh settings from the settings module
+        """
+        if settings is not None:
+            try:
+                new_target_system = settings.get_mavlink_flight_controller_sysid()
+                if new_target_system != self.target_system:
+                    self.update_target_system_id(new_target_system)
+            except Exception as e:
+                logger.warning(f"Could not refresh flight controller SysID from settings: {e}")
 
 def calculate_angular_offsets(detection: Dict[str, Any],
                             image_width: int,

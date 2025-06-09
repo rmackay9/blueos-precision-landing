@@ -82,8 +82,15 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
 
         logger.info(f"Precision landing using camera: {camera_type}, RTSP: {rtsp_url}")
 
+        # Get camera FOV setting
+        camera_horizontal_fov = settings.get_camera_horizontal_fov(camera_type)
+        logger.info(f"Using horizontal FOV: {camera_horizontal_fov}° for camera type: {camera_type}")
+
         # Initialize landing target sender
         sender = send_landing_target.get_landing_target_sender()
+
+        # Refresh sender settings to get latest target system ID
+        sender.refresh_settings()
 
         # Test MAV2Rest connection
         mav_test = sender.test_connection()
@@ -93,6 +100,13 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
             return
 
         logger.info("MAV2Rest connection successful - ready to send LANDING_TARGET messages")
+
+        # Get AprilTag target ID from settings
+        target_apriltag_id = settings.get_apriltag_target_id()
+        if target_apriltag_id == -1:
+            logger.info("AprilTag ID filter: -1 (accept any AprilTag ID)")
+        else:
+            logger.info(f"AprilTag ID filter: {target_apriltag_id} (accept only this specific ID)")
 
         # Precision landing main loop
         frame_count = 0
@@ -114,27 +128,45 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
                 april_tag_detection = frame_result.get("april_tag_detection", {})
 
                 if april_tag_detection.get("success") and april_tag_detection.get("detections"):
-                    detections = april_tag_detection["detections"]
+                    all_detections = april_tag_detection["detections"]
 
-                    # Get image dimensions from resolution string
-                    resolution = frame_result.get("resolution", "640x480")
-                    width, height = map(int, resolution.split('x'))
-
-                    # Process the largest (closest) AprilTag
-                    largest_tag = max(detections, key=lambda x: x.get("relative_size", 0))
-
-                    # Send LANDING_TARGET message
-                    send_result = send_landing_target.send_apriltag_as_landing_target(
-                        largest_tag, width, height, sender
-                    )
-
-                    if send_result["success"]:
-                        last_detection_time = frame_count
-                        logger.info(f"Frame {frame_count}: Sent LANDING_TARGET for AprilTag ID {largest_tag['tag_id']} "
-                                  f"(angle_x={send_result['angles']['angle_x_deg']:.2f}°, "
-                                  f"angle_y={send_result['angles']['angle_y_deg']:.2f}°)")
+                    # Filter detections by target ID (-1 means accept any AprilTag ID)
+                    if target_apriltag_id == -1:
+                        # Accept any AprilTag ID
+                        target_detections = all_detections
                     else:
-                        logger.warning(f"Failed to send LANDING_TARGET: {send_result['message']}")
+                        # Only accept specific AprilTag ID
+                        target_detections = [d for d in all_detections if d.get("tag_id") == target_apriltag_id]
+
+                    if target_detections:
+                        # Get image dimensions from resolution string
+                        resolution = frame_result.get("resolution", "640x480")
+                        width, height = map(int, resolution.split('x'))
+
+                        # Process the largest (closest) AprilTag with matching ID
+                        largest_tag = max(target_detections, key=lambda x: x.get("relative_size", 0))
+
+                        # Send LANDING_TARGET message
+                        send_result = send_landing_target.send_apriltag_as_landing_target(
+                            largest_tag, width, height, sender, camera_horizontal_fov
+                        )
+
+                        if send_result["success"]:
+                            last_detection_time = frame_count
+                            logger.info(f"Frame {frame_count}: Sent LANDING_TARGET for AprilTag ID {largest_tag['tag_id']} "
+                                      f"(angle_x={send_result['angles']['angle_x_deg']:.2f}°, "
+                                      f"angle_y={send_result['angles']['angle_y_deg']:.2f}°)")
+                        else:
+                            logger.warning(f"Failed to send LANDING_TARGET: {send_result['message']}")
+                    else:
+                        # AprilTags detected but none match target ID (this should only happen for specific ID filtering)
+                        if frame_count % 10 == 0:  # Log every 10 frames
+                            detected_ids = [d.get("tag_id") for d in all_detections]
+                            if target_apriltag_id == -1:
+                                # This should not happen since -1 accepts any ID, but log just in case
+                                logger.debug(f"Frame {frame_count}: Found AprilTags {detected_ids} but no detections returned (unexpected)")
+                            else:
+                                logger.debug(f"Frame {frame_count}: Found AprilTags {detected_ids} but looking for specific ID {target_apriltag_id}")
                 else:
                     # No AprilTag detected
                     if frame_count % 10 == 0:  # Log every 10 frames
@@ -170,15 +202,35 @@ async def startup_auto_restart():
 # Precision Landing API Endpoints
 
 @app.post("/precision-landing/save-settings")
-async def save_precision_landing_settings(type: str, rtsp: str) -> Dict[str, Any]:
-    """Save camera settings to persistent storage (using query parameters)"""
-    logger.info(f"Saving precision landing settings: type={type}, rtsp_url={rtsp}")
-    success = settings.update_camera_rtsp(type, rtsp)
+async def save_precision_landing_settings(
+    type: str,
+    rtsp: str,
+    fov: float = None,
+    apriltag_family: str = None,
+    tag_id: int = None,
+    flight_controller_sysid: int = None
+) -> Dict[str, Any]:
+    """Save camera settings and other precision landing settings to persistent storage (using query parameters)"""
+    logger.info(f"Saving precision landing settings: type={type}, rtsp_url={rtsp}, fov={fov}, "
+                f"apriltag_family={apriltag_family}, tag_id={tag_id}, flight_controller_sysid={flight_controller_sysid}")
 
-    if success:
+    # Save camera settings
+    camera_success = settings.update_camera_settings(type, rtsp, fov)
+
+    # Save AprilTag settings
+    apriltag_success = True
+    if apriltag_family is not None or tag_id is not None:
+        apriltag_success = settings.update_apriltag_settings(apriltag_family, tag_id)
+
+    # Save MAVLink settings
+    mavlink_success = True
+    if flight_controller_sysid is not None:
+        mavlink_success = settings.update_mavlink_settings(flight_controller_sysid)
+
+    if camera_success and apriltag_success and mavlink_success:
         return {"success": True, "message": f"Settings saved for {type}"}
     else:
-        return {"success": False, "message": "Failed to save settings"}
+        return {"success": False, "message": "Failed to save some settings"}
 
 
 @app.post("/precision-landing/get-settings")
@@ -190,16 +242,33 @@ async def get_precision_landing_settings() -> Dict[str, Any]:
         # Get the last used camera settings
         last_used = settings.get_last_used()
 
-        # Get RTSP URLs for all camera types
+        # Get RTSP URLs and FOV values for all camera types
         cameras = {}
         for camera_type in ["siyi-a8", "siyi-zr10", "siyi-zt6-ir", "siyi-zt6-rgb"]:
             rtsp_url = settings.get_camera_rtsp(camera_type)
-            cameras[camera_type] = {"rtsp_url": rtsp_url}
+            horizontal_fov = settings.get_camera_horizontal_fov(camera_type)
+            cameras[camera_type] = {
+                "rtsp": rtsp_url,
+                "horizontal_fov": horizontal_fov
+            }
+
+        # Get AprilTag settings
+        apriltag_settings = {
+            "family": settings.get_apriltag_family(),
+            "target_id": settings.get_apriltag_target_id()
+        }
+
+        # Get MAVLink settings
+        mavlink_settings = {
+            "flight_controller_sysid": settings.get_mavlink_flight_controller_sysid()
+        }
 
         return {
             "success": True,
             "last_used": last_used,
-            "cameras": cameras
+            "cameras": cameras,
+            "apriltag": apriltag_settings,
+            "mavlink": mavlink_settings
         }
     except Exception as e:
         logger.exception(f"Error getting precision landing settings: {str(e)}")

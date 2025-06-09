@@ -14,24 +14,36 @@ SETTINGS_FILE = Path('/app/settings/precision-landing-settings.json')
 DEFAULT_SETTINGS = {
     'cameras': {
         'siyi-a8': {
-            'rtsp': 'rtsp://192.168.87.200:8554/main.264'
+            'rtsp': 'rtsp://192.168.87.200:8554/main.264',
+            'horizontal_fov': 81
         },
         'siyi-zr10': {
-            'rtsp': 'rtsp://192.168.87.200:8554/main.264'
+            'rtsp': 'rtsp://192.168.87.200:8554/main.264',
+            'horizontal_fov': 62
         },
         'siyi-zt6-ir': {
-            'rtsp': 'rtsp://192.168.87.200:8554/video1'
+            'rtsp': 'rtsp://192.168.87.200:8554/video1',
+            'horizontal_fov': 32
         },
         'siyi-zt6-rgb': {
-            'rtsp': 'rtsp://192.168.87.200:8554/video2'
+            'rtsp': 'rtsp://192.168.87.200:8554/video2',
+            'horizontal_fov': 85
         }
     },
     'last_used': {
         'camera_type': 'siyi-a8',
-        'rtsp': 'rtsp://192.168.87.200:8554/main.264'
+        'rtsp': 'rtsp://192.168.87.200:8554/main.264',
+        'horizontal_fov': 81
     },
     'precision_landing': {
         'enabled': False
+    },
+    'apriltag': {
+        'family': 'tag36h11',
+        'target_id': -1
+    },
+    'mavlink': {
+        'flight_controller_sysid': 1
     }
 }
 
@@ -86,10 +98,58 @@ def save_settings(settings):
         logger.error(f"Error saving settings: {e}")
 
 
-# update the camera RTSP URL in the settings file
+# update the camera RTSP URL and FOV in the settings file
+def update_camera_settings(camera_type, rtsp, horizontal_fov=None):
+    """
+    Update the RTSP URL and horizontal FOV for a specific camera type
+
+    Args:
+        camera_type (str): The camera type ("siyi-a8", "siyi-zr10", "siyi-zt6-ir", "siyi-zt6-rgb")
+        rtsp (str): The RTSP URL
+        horizontal_fov (float, optional): The horizontal field of view in degrees
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        settings = get_settings()
+
+        # Update camera settings
+        if camera_type not in settings['cameras']:
+            settings['cameras'][camera_type] = {}
+
+        settings['cameras'][camera_type]['rtsp'] = rtsp
+
+        if horizontal_fov is not None:
+            settings['cameras'][camera_type]['horizontal_fov'] = horizontal_fov
+
+        # Update last used settings
+        last_used = {
+            'camera_type': camera_type,
+            'rtsp': rtsp
+        }
+        if horizontal_fov is not None:
+            last_used['horizontal_fov'] = horizontal_fov
+        else:
+            # Use existing FOV if available
+            if camera_type in settings['cameras'] and 'horizontal_fov' in settings['cameras'][camera_type]:
+                last_used['horizontal_fov'] = settings['cameras'][camera_type]['horizontal_fov']
+            elif camera_type in DEFAULT_SETTINGS['cameras']:
+                last_used['horizontal_fov'] = DEFAULT_SETTINGS['cameras'][camera_type]['horizontal_fov']
+
+        settings['last_used'] = last_used
+
+        save_settings(settings)
+        return True
+    except Exception as e:
+        logger.error(f"Error updating camera settings: {e}")
+        return False
+
+
+# update the camera RTSP URL in the settings file (backward compatibility)
 def update_camera_rtsp(camera_type, rtsp):
     """
-    Update the RTSP URL for a specific camera type
+    Update the RTSP URL for a specific camera type (backward compatibility function)
 
     Args:
         camera_type (str): The camera type ("siyi-a8", "siyi-zr10", "siyi-zt6-ir", "siyi-zt6-rgb")
@@ -98,26 +158,7 @@ def update_camera_rtsp(camera_type, rtsp):
     Returns:
         bool: True if successful, False otherwise
     """
-    try:
-        settings = get_settings()
-
-        # Update camera RTSP URL
-        if camera_type not in settings['cameras']:
-            settings['cameras'][camera_type] = {}
-
-        settings['cameras'][camera_type]['rtsp'] = rtsp
-
-        # Update last used settings
-        settings['last_used'] = {
-            'camera_type': camera_type,
-            'rtsp': rtsp
-        }
-
-        save_settings(settings)
-        return True
-    except Exception as e:
-        logger.error(f"Error updating camera RTSP URL: {e}")
-        return False
+    return update_camera_settings(camera_type, rtsp)
 
 
 # get the latest RTSP URL for a specific camera type
@@ -143,6 +184,31 @@ def get_camera_rtsp(camera_type):
     else:
         # Fallback to siyi-a8 if camera type not found
         return DEFAULT_SETTINGS['cameras']['siyi-a8']['rtsp']
+
+
+# get the horizontal FOV for a specific camera type
+def get_camera_horizontal_fov(camera_type):
+    """
+    Get the saved horizontal FOV for a camera type
+
+    Args:
+        camera_type (str): The camera type ("siyi-a8", "siyi-zr10", "siyi-zt6-ir", "siyi-zt6-rgb")
+
+    Returns:
+        float: The saved horizontal FOV in degrees or default if not found
+    """
+    settings = get_settings()
+
+    # Check if camera type exists in settings
+    if camera_type in settings['cameras'] and 'horizontal_fov' in settings['cameras'][camera_type]:
+        return settings['cameras'][camera_type]['horizontal_fov']
+
+    # Return default FOV if not found
+    if camera_type in DEFAULT_SETTINGS['cameras']:
+        return DEFAULT_SETTINGS['cameras'][camera_type]['horizontal_fov']
+    else:
+        # Fallback to siyi-a8 if camera type not found
+        return DEFAULT_SETTINGS['cameras']['siyi-a8']['horizontal_fov']
 
 
 # get the last used camera type and RTSP URL
@@ -204,4 +270,99 @@ def get_precision_landing_enabled():
         return DEFAULT_SETTINGS['precision_landing']['enabled']
     except Exception as e:
         logger.error(f"Error getting precision landing enabled state: {e}")
+        return False
+
+
+# get and update AprilTag settings
+def get_apriltag_family():
+    """
+    Get the AprilTag family setting
+
+    Returns:
+        str: The AprilTag family (default: 'tag36h11')
+    """
+    settings = get_settings()
+    return settings.get('apriltag', {}).get('family', DEFAULT_SETTINGS['apriltag']['family'])
+
+
+def get_apriltag_target_id():
+    """
+    Get the AprilTag target ID setting
+
+    Returns:
+        int: The AprilTag target ID (default: 0)
+    """
+    settings = get_settings()
+    return settings.get('apriltag', {}).get('target_id', DEFAULT_SETTINGS['apriltag']['target_id'])
+
+
+def update_apriltag_settings(family=None, target_id=None):
+    """
+    Update AprilTag settings
+
+    Args:
+        family (str, optional): The AprilTag family
+        target_id (int, optional): The target ID
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        settings = get_settings()
+
+        # Ensure apriltag section exists
+        if 'apriltag' not in settings:
+            settings['apriltag'] = {}
+
+        if family is not None:
+            settings['apriltag']['family'] = family
+
+        if target_id is not None:
+            settings['apriltag']['target_id'] = target_id
+
+        save_settings(settings)
+        logger.debug(f"Updated AprilTag settings - family: {family}, target_id: {target_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Error updating AprilTag settings: {e}")
+        return False
+
+
+# get and update MAVLink settings
+def get_mavlink_flight_controller_sysid():
+    """
+    Get the MAVLink flight controller system ID setting
+
+    Returns:
+        int: The flight controller system ID (default: 1)
+    """
+    settings = get_settings()
+    return settings.get('mavlink', {}).get('flight_controller_sysid', DEFAULT_SETTINGS['mavlink']['flight_controller_sysid'])
+
+
+def update_mavlink_settings(flight_controller_sysid=None):
+    """
+    Update MAVLink settings
+
+    Args:
+        flight_controller_sysid (int, optional): The flight controller system ID
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        settings = get_settings()
+
+        # Ensure mavlink section exists
+        if 'mavlink' not in settings:
+            settings['mavlink'] = {}
+
+        if flight_controller_sysid is not None:
+            settings['mavlink']['flight_controller_sysid'] = flight_controller_sysid
+
+        save_settings(settings)
+        logger.debug(f"Updated MAVLink settings - flight_controller_sysid: {flight_controller_sysid}")
+        return True
+    except Exception as e:
+        logger.error(f"Error updating MAVLink settings: {e}")
         return False
