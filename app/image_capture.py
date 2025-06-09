@@ -16,6 +16,16 @@ from typing import Dict, Any
 # Get logger
 logger = logging.getLogger("precision-landing")
 
+# Import AprilTag detection module with error handling
+try:
+    from app import april_tags
+    APRIL_TAGS_AVAILABLE = True
+    logger.info("AprilTag detection module imported successfully")
+except ImportError as e:
+    logger.warning(f"AprilTag detection module not available: {str(e)}")
+    APRIL_TAGS_AVAILABLE = False
+    april_tags = None
+
 
 def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str, Any]:
     """
@@ -132,16 +142,44 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
             height, width = frame_data["frame"].shape[:2]
             logger.info(f"Read frame succeeded: {width}x{height}")
 
-            # Encode frame as base64 for web display
-            _, buffer = cv2.imencode('.jpg', frame_data["frame"])
-            image_base64 = base64.b64encode(buffer).decode('utf-8')
+            # Perform AprilTag detection on the captured frame if available
+            if APRIL_TAGS_AVAILABLE and april_tags is not None:
+                try:
+                    detection_result = april_tags.detect_april_tags(image = frame_data["frame"], tag_family="tag36h11")
+                except Exception as e:
+                    logger.error(f"Error during AprilTag detection: {str(e)}")
+                    detection_result = {
+                        "success": False,
+                        "message": f"AprilTag detection error: {str(e)}",
+                        "detections": [],
+                        "augmented_image_base64": ""
+                    }
+            else:
+                logger.info("AprilTag detection not available - showing original image")
+                detection_result = {
+                    "success": False,
+                    "message": "AprilTag detection module not available",
+                    "detections": [],
+                    "augmented_image_base64": ""
+                }
+
+            # Use augmented image if AprilTag detection was successful, otherwise use original
+            if detection_result["success"] and detection_result.get("augmented_image_base64"):
+                image_base64 = detection_result["augmented_image_base64"]
+                logger.info(f"AprilTag detection: {detection_result['message']}")
+            else:
+                # Encode frame as base64 for web display
+                _, buffer = cv2.imencode('.jpg', frame_data["frame"])
+                image_base64 = base64.b64encode(buffer).decode('utf-8')
+                logger.info(f"AprilTag detection failed: {detection_result.get('message', 'Unknown error')}")
 
             return {
                 "success": True,
                 "message": f"RTSP connection successful ({width}x{height}). Method: {rtsp_url_extended}",
                 "connection_method": rtsp_url_extended,
                 "resolution": f"{width}x{height}",
-                "image_base64": image_base64
+                "image_base64": image_base64,
+                "april_tag_detection": detection_result
             }
         else:
             return {
@@ -194,15 +232,26 @@ def capture_frame_from_stream(rtsp_url: str, timeout_seconds: int = 30) -> Dict[
         if ret and frame is not None:
             height, width = frame.shape[:2]
 
-            # Encode frame as base64
-            _, buffer = cv2.imencode('.jpg', frame)
-            image_base64 = base64.b64encode(buffer).decode('utf-8')
+            # Perform AprilTag detection on the captured frame
+            detection_result = april_tags.detect_april_tags(frame)
+
+            # Use augmented image if AprilTag detection was successful, otherwise use original
+            if detection_result["success"] and detection_result.get("augmented_image_base64"):
+                # Encode augmented frame as base64
+                image_base64 = detection_result["augmented_image_base64"]
+                logger.info(f"AprilTag detection: {detection_result['message']}")
+            else:
+                # Encode original frame as base64
+                _, buffer = cv2.imencode('.jpg', frame)
+                image_base64 = base64.b64encode(buffer).decode('utf-8')
+                logger.info(f"AprilTag detection failed: {detection_result.get('message', 'Unknown error')}")
 
             return {
                 "success": True,
                 "message": f"Frame captured successfully ({width}x{height})",
                 "resolution": f"{width}x{height}",
-                "image_base64": image_base64
+                "image_base64": image_base64,
+                "april_tag_detection": detection_result
             }
         else:
             return {

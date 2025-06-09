@@ -276,7 +276,21 @@
                     fetch(`/precision-landing/test?type=${cameraType}&rtsp=${encodeURIComponent(rtspUrl)}`, {
                         method: 'POST'
                     })
-                        .then(response => response.json())
+                        .then(response => {
+                            // Check if response is OK and contains JSON
+                            if (!response.ok) {
+                                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                            }
+
+                            const contentType = response.headers.get('content-type');
+                            if (!contentType || !contentType.includes('application/json')) {
+                                return response.text().then(text => {
+                                    throw new Error(`Expected JSON response but got: ${text.substring(0, 200)}...`);
+                                });
+                            }
+
+                            return response.json();
+                        })
                         .then(data => {
                             if (data.success) {
                                 progressLog.value += data.message + '\n';
@@ -287,8 +301,39 @@
                                     imageDisplayRow.style.display = 'flex';
                                     progressLog.value += 'Captured frame displayed above\n';
                                 }
+
+                                // Display AprilTag detection results
+                                if (data.april_tag_detection) {
+                                    const detection = data.april_tag_detection;
+                                    if (detection.success && detection.detections && detection.detections.length > 0) {
+                                        progressLog.value += `\nAprilTag Detection Results:\n`;
+                                        detection.detections.forEach((tag, index) => {
+                                            progressLog.value += `  Tag ${index + 1}: ID=${tag.tag_id}, Center=(${tag.center_x.toFixed(1)}, ${tag.center_y.toFixed(1)}), Size=${tag.relative_size.toFixed(3)}\n`;
+                                        });
+
+                                        // Calculate landing guidance for the largest tag
+                                        const largestTag = detection.detections.reduce((prev, current) =>
+                                            (prev.relative_size > current.relative_size) ? prev : current
+                                        );
+
+                                        // Get image dimensions from the resolution string (e.g., "640x480")
+                                        const [width, height] = data.resolution.split('x').map(Number);
+                                        const centerX = width / 2;
+                                        const centerY = height / 2;
+
+                                        const offsetX = (largestTag.center_x - centerX) / (width / 2);
+                                        const offsetY = (largestTag.center_y - centerY) / (height / 2);
+
+                                        progressLog.value += `\nLanding Guidance (Tag ID ${largestTag.tag_id}):\n`;
+                                        progressLog.value += `  Horizontal: ${offsetX > 0.05 ? 'Move LEFT' : offsetX < -0.05 ? 'Move RIGHT' : 'CENTERED'}\n`;
+                                        progressLog.value += `  Vertical: ${offsetY > 0.05 ? 'Move UP' : offsetY < -0.05 ? 'Move DOWN' : 'CENTERED'}\n`;
+                                        progressLog.value += `  Offset: (${offsetX.toFixed(3)}, ${offsetY.toFixed(3)})\n`;
+                                    } else {
+                                        progressLog.value += '\nNo AprilTags detected in image\n';
+                                    }
+                                }
                             } else {
-                                progressLog.value += `Test failed1: ${data.message}\n`;
+                                progressLog.value += `Test failed: ${data.message}\n`;
                                 // Hide image on failure
                                 imageDisplayRow.style.display = 'none';
                             }

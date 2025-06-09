@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from fastapi.requests import Request
 from typing import Dict, Any
 from pydantic import BaseModel
 
@@ -36,6 +37,19 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(console_handler)
 
 app = FastAPI()
+
+# Global exception handler to ensure all errors return JSON
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"Unhandled exception in {request.url}: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": f"Internal server error: {str(exc)}",
+            "error": "Internal server error"
+        }
+    )
 
 # Global variable to track precision landing running state
 # In a real implementation, this might be a more sophisticated state management system
