@@ -124,6 +124,7 @@
                         <div class="col-sm-9" style="margin-left: auto;">
                             <button id="saveSettingsBtn" class="btn btn-secondary">Save Settings</button>
                             <button id="testBtn" class="btn btn-primary">Test</button>
+                            <button id="testMavlinkBtn" class="btn btn-primary">Test MAVLink</button>
                             <button id="runBtn" class="btn btn-success">Run</button>
                         </div>
                     </div>
@@ -164,6 +165,10 @@
                 // Test button event listener
                 const testBtn = document.getElementById('testBtn');
                 testBtn.addEventListener('click', testPrecisionLanding);
+
+                // Test MAVLink button event listener
+                const testMavlinkBtn = document.getElementById('testMavlinkBtn');
+                testMavlinkBtn.addEventListener('click', testMavlinkConnection);
 
                 // Run button event listener
                 const runBtn = document.getElementById('runBtn');
@@ -491,6 +496,36 @@
                         })
                         .catch(error => {
                             console.error('Error saving precision landing state:', error);
+                        });
+                }
+
+                // Test MAVLink connection function
+                function testMavlinkConnection() {
+                    progressLog.value = "Testing MAVLink connection via MAV2Rest...\n";
+                    progressLog.scrollTop = progressLog.scrollHeight;
+
+                    fetch('/precision-landing/test-mavlink', {
+                        method: 'POST'
+                    })
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            if (data.success) {
+                                progressLog.value += `MAVLink connection successful!\n`;
+                                progressLog.value += `Endpoint: ${data.endpoint}\n`;
+                                progressLog.value += "Ready to send LANDING_TARGET messages to vehicle\n";
+                            } else {
+                                progressLog.value += `MAVLink connection failed: ${data.message}\n`;
+                            }
+                            progressLog.scrollTop = progressLog.scrollHeight;
+                        })
+                        .catch(error => {
+                            progressLog.value += `Error testing MAVLink connection: ${error}\n`;
+                            progressLog.scrollTop = progressLog.scrollHeight;
                         });
                 }
             });

@@ -24,6 +24,8 @@ from pydantic import BaseModel
 from app import settings
 # Import the image capture module
 from app import image_capture
+# Import the landing target sender module
+from app import send_landing_target
 
 # Configure console logging
 console_handler = logging.StreamHandler(sys.stdout)
@@ -64,7 +66,7 @@ logger.info("Precision Landing backend started")
 
 
 # Internal function to start precision landing
-async def start_precision_landing_internal():
+async def start_precision_landing_internal(camera_type: str = None, rtsp_url: str = None):
     """Internal function to start the precision landing process"""
     global precision_landing_running, precision_landing_process
 
@@ -72,20 +74,84 @@ async def start_precision_landing_internal():
         logger.info("Starting precision landing process")
         precision_landing_running = True
 
-        # TODO: Implement actual precision landing logic here
-        # This would include:
-        # - Connecting to the RTSP stream
-        # - Processing video frames for AprilTag detection
-        # - Sending MAVLink messages to the vehicle
+        # Get camera settings if not provided
+        if camera_type is None or rtsp_url is None:
+            last_used = settings.get_last_used()
+            camera_type = camera_type or last_used.get("camera_type", "siyi-a8")
+            rtsp_url = rtsp_url or last_used.get("rtsp", "rtsp://192.168.87.200:8554/main.264")
 
-        # For now, this is a placeholder that just runs indefinitely
+        logger.info(f"Precision landing using camera: {camera_type}, RTSP: {rtsp_url}")
+
+        # Initialize landing target sender
+        sender = send_landing_target.get_landing_target_sender()
+
+        # Test MAV2Rest connection
+        mav_test = sender.test_connection()
+        if not mav_test["success"]:
+            logger.error(f"MAV2Rest connection failed: {mav_test['message']}")
+            precision_landing_running = False
+            return
+
+        logger.info("MAV2Rest connection successful - ready to send LANDING_TARGET messages")
+
+        # Precision landing main loop
+        frame_count = 0
+        last_detection_time = 0
+
         while precision_landing_running:
-            logger.debug("Precision landing running...")
-            await asyncio.sleep(5)  # Simulate work
+            try:
+                # Capture frame from RTSP stream
+                frame_result = image_capture.capture_frame_from_stream(rtsp_url, timeout_seconds=30)
+
+                if not frame_result["success"]:
+                    logger.warning(f"Failed to capture frame: {frame_result['message']}")
+                    await asyncio.sleep(1)  # Wait before retrying
+                    continue
+
+                frame_count += 1
+
+                # Check for AprilTag detections
+                april_tag_detection = frame_result.get("april_tag_detection", {})
+
+                if april_tag_detection.get("success") and april_tag_detection.get("detections"):
+                    detections = april_tag_detection["detections"]
+
+                    # Get image dimensions from resolution string
+                    resolution = frame_result.get("resolution", "640x480")
+                    width, height = map(int, resolution.split('x'))
+
+                    # Process the largest (closest) AprilTag
+                    largest_tag = max(detections, key=lambda x: x.get("relative_size", 0))
+
+                    # Send LANDING_TARGET message
+                    send_result = send_landing_target.send_apriltag_as_landing_target(
+                        largest_tag, width, height, sender
+                    )
+
+                    if send_result["success"]:
+                        last_detection_time = frame_count
+                        logger.info(f"Frame {frame_count}: Sent LANDING_TARGET for AprilTag ID {largest_tag['tag_id']} "
+                                  f"(angle_x={send_result['angles']['angle_x_deg']:.2f}°, "
+                                  f"angle_y={send_result['angles']['angle_y_deg']:.2f}°)")
+                    else:
+                        logger.warning(f"Failed to send LANDING_TARGET: {send_result['message']}")
+                else:
+                    # No AprilTag detected
+                    if frame_count % 10 == 0:  # Log every 10 frames
+                        logger.debug(f"Frame {frame_count}: No AprilTag detected")
+
+                # Short sleep to prevent overwhelming the system
+                await asyncio.sleep(0.1)  # 10 Hz processing rate
+
+            except Exception as e:
+                logger.error(f"Error in precision landing loop: {str(e)}")
+                await asyncio.sleep(1)  # Wait before retrying
 
     except Exception as e:
         logger.error(f"Error in precision landing process: {str(e)}")
+    finally:
         precision_landing_running = False
+        logger.info("Precision landing process stopped")
 
 
 # Auto-start precision landing if it was previously enabled
@@ -219,7 +285,7 @@ async def start_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
             return {"success": False, "message": "Precision landing is already running"}
 
         # Start the precision landing process
-        asyncio.create_task(start_precision_landing_internal())
+        asyncio.create_task(start_precision_landing_internal(type, rtsp))
 
         return {
             "success": True,
@@ -273,6 +339,23 @@ async def get_precision_landing_status() -> Dict[str, Any]:
     except Exception as e:
         logger.exception(f"Error getting precision landing status: {str(e)}")
         return {"success": False, "message": f"Error: {str(e)}", "running": False}
+
+
+@app.post("/precision-landing/test-mavlink")
+async def test_mavlink_connection() -> Dict[str, Any]:
+    """Test MAV2Rest MAVLink connection"""
+    logger.info("Testing MAV2Rest MAVLink connection")
+
+    try:
+        result = send_landing_target.test_mav2rest_connection()
+        if result["success"]:
+            logger.info("MAV2Rest connection test successful")
+        else:
+            logger.warning(f"MAV2Rest connection test failed: {result['message']}")
+        return result
+    except Exception as e:
+        logger.exception(f"Error during MAV2Rest test: {str(e)}")
+        return {"success": False, "message": f"MAV2Rest test failed: {str(e)}"}
 
 
 # Initialize auto-restart task
