@@ -127,6 +127,13 @@
                             <button id="runBtn" class="btn btn-success">Run</button>
                         </div>
                     </div>
+                    <div class="row mb-3" id="imageDisplayRow" style="display: none;">
+                        <!-- Captured Image Display -->
+                        <label class="col-form-label">Captured Image:</label>
+                        <div class="col-sm-9">
+                            <img id="capturedImage" src="" alt="Captured frame" style="max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 5px;">
+                        </div>
+                    </div>
                     <div class="row mb-3">
                         <!-- Progress text area -->
                         <label for="progressLog" class="col-form-label">Progress:</label>
@@ -261,6 +268,11 @@
                     progressLog.value = `Starting precision landing test with ${cameraType} camera...\n`;
                     progressLog.scrollTop = progressLog.scrollHeight;
 
+                    // Hide image initially
+                    const imageDisplayRow = document.getElementById('imageDisplayRow');
+                    const capturedImage = document.getElementById('capturedImage');
+                    imageDisplayRow.style.display = 'none';
+
                     fetch(`/precision-landing/test?type=${cameraType}&rtsp=${encodeURIComponent(rtspUrl)}`, {
                         method: 'POST'
                     })
@@ -268,14 +280,25 @@
                         .then(data => {
                             if (data.success) {
                                 progressLog.value += data.message + '\n';
+
+                                // If there's image data, display it
+                                if (data.image_base64) {
+                                    capturedImage.src = 'data:image/jpeg;base64,' + data.image_base64;
+                                    imageDisplayRow.style.display = 'flex';
+                                    progressLog.value += 'Captured frame displayed above\n';
+                                }
                             } else {
                                 progressLog.value += `Test failed1: ${data.message}\n`;
+                                // Hide image on failure
+                                imageDisplayRow.style.display = 'none';
                             }
                             progressLog.scrollTop = progressLog.scrollHeight;
                         })
                         .catch(error => {
                             progressLog.value += `Error during test: ${error}\n`;
                             progressLog.scrollTop = progressLog.scrollHeight;
+                            // Hide image on error
+                            imageDisplayRow.style.display = 'none';
                         });
                 }
 

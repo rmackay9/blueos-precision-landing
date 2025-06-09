@@ -155,11 +155,17 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
             height, width = frame_data["frame"].shape[:2]
             logger.info(f"Read frame succeeded: {width}x{height}")
 
+            # Encode frame as base64 for web display
+            import base64
+            _, buffer = cv2.imencode('.jpg', frame_data["frame"])
+            image_base64 = base64.b64encode(buffer).decode('utf-8')
+
             return {
                 "success": True,
                 "message": f"RTSP connection successful ({width}x{height}). Method: {rtsp_url_extended}",
                 "connection_method": rtsp_url_extended,
-                "resolution": f"{width}x{height}"
+                "resolution": f"{width}x{height}",
+                "image_base64": image_base64
             }
         else:
             return {
