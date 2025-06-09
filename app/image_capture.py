@@ -54,22 +54,10 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
     # Extract key build information
     for line in build_info.split('\n'):
         line = line.strip()
-        if 'Video I/O:' in line or 'FFMPEG:' in line or 'GStreamer:' in line:
+        if 'Video I/O:' in line or 'FFMPEG:' in line:
             logger.info(f"OpenCV build info: {line}")
-        elif line.startswith('FFMPEG:') or line.startswith('GStreamer:'):
+        elif line.startswith('FFMPEG:'):
             logger.info(f"OpenCV build info: {line}")
-
-    # Try to get GStreamer version
-    try:
-        import subprocess
-        result = subprocess.run(['gst-launch-1.0', '--version'], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            gst_version = result.stdout.split('\n')[0]
-            logger.info(f"GStreamer version: {gst_version}")
-        else:
-            logger.info("GStreamer version: Could not determine (gst-launch-1.0 failed)")
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-        logger.info(f"GStreamer version: Could not determine ({str(e)})")
 
     cap = None
     rtsp_url_extended = ""
@@ -78,18 +66,7 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
         # Log the attempt to connect
         logger.info("Attempting connection...")
 
-        # non-working GStreamer pipeline below
-        #rtsp_url_extended = (
-        #    f"rtspsrc location={rtsp_url} latency=100 ! "
-        #    "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
-        #)
-        # cap = cv2.VideoCapture(rtsp_url_extended, cv2.CAP_GSTREAMER)
-
-        # non-working GStreamer pipeline (connects but no frames read)
-        #rtsp_url_extended = f"rtspsrc location={rtsp_url} latency=41 udp-reconnect=1 timeout=0 do-retransmission=false ! application/x-rtp ! decodebin3 ! queue max-size-buffers=1 leaky=2 ! videoconvert ! video/x-raw,format=BGRA ! appsink"
-        #cap = cv2.VideoCapture(rtsp_url_extended, cv2.CAP_GSTREAMER)
-
-        # partially working FFMPEG pipeline (connects but no frames read)
+        # Use FFMPEG backend for RTSP connection
         rtsp_url_extended = rtsp_url
         cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
 
