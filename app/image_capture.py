@@ -162,6 +162,15 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
                             logger.warning(f"Could not get AprilTag family from settings: {e}")
 
                     detection_result = april_tags.detect_april_tags(image = frame_data["frame"], tag_family=apriltag_family)
+
+                    # Apply AprilTag ID filtering if detection was successful
+                    if detection_result.get("success") and settings is not None:
+                        try:
+                            target_apriltag_id = settings.get_apriltag_target_id()
+                            detection_result = april_tags.filter_april_tag_detection_result(detection_result, target_apriltag_id)
+                        except Exception as e:
+                            logger.warning(f"Could not apply AprilTag ID filtering: {e}")
+
                 except Exception as e:
                     logger.error(f"Error during AprilTag detection: {str(e)}")
                     detection_result = {
@@ -258,6 +267,14 @@ def capture_frame_from_stream(rtsp_url: str, timeout_seconds: int = 30) -> Dict[
 
             # Perform AprilTag detection on the captured frame
             detection_result = april_tags.detect_april_tags(frame, tag_family=apriltag_family)
+
+            # Apply AprilTag ID filtering if detection was successful
+            if detection_result.get("success") and settings is not None:
+                try:
+                    target_apriltag_id = settings.get_apriltag_target_id()
+                    detection_result = april_tags.filter_april_tag_detection_result(detection_result, target_apriltag_id)
+                except Exception as e:
+                    logger.warning(f"Could not apply AprilTag ID filtering: {e}")
 
             # Use augmented image if AprilTag detection was successful, otherwise use original
             if detection_result["success"] and detection_result.get("augmented_image_base64"):

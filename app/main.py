@@ -26,6 +26,8 @@ from app import settings
 from app import image_capture
 # Import the landing target sender module
 from app import send_landing_target
+# Import the april_tags module
+from app import april_tags
 
 # Configure console logging
 console_handler = logging.StreamHandler(sys.stdout)
@@ -128,15 +130,8 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
                 april_tag_detection = frame_result.get("april_tag_detection", {})
 
                 if april_tag_detection.get("success") and april_tag_detection.get("detections"):
-                    all_detections = april_tag_detection["detections"]
-
-                    # Filter detections by target ID (-1 means accept any AprilTag ID)
-                    if target_apriltag_id == -1:
-                        # Accept any AprilTag ID
-                        target_detections = all_detections
-                    else:
-                        # Only accept specific AprilTag ID
-                        target_detections = [d for d in all_detections if d.get("tag_id") == target_apriltag_id]
+                    # Detections are already filtered by target ID in capture_frame_from_stream
+                    target_detections = april_tag_detection["detections"]
 
                     if target_detections:
                         # Get image dimensions from resolution string
@@ -158,19 +153,15 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
                                       f"angle_y={send_result['angles']['angle_y_deg']:.2f}°)")
                         else:
                             logger.warning(f"Failed to send LANDING_TARGET: {send_result['message']}")
-                    else:
-                        # AprilTags detected but none match target ID (this should only happen for specific ID filtering)
-                        if frame_count % 10 == 0:  # Log every 10 frames
-                            detected_ids = [d.get("tag_id") for d in all_detections]
-                            if target_apriltag_id == -1:
-                                # This should not happen since -1 accepts any ID, but log just in case
-                                logger.debug(f"Frame {frame_count}: Found AprilTags {detected_ids} but no detections returned (unexpected)")
-                            else:
-                                logger.debug(f"Frame {frame_count}: Found AprilTags {detected_ids} but looking for specific ID {target_apriltag_id}")
+                    # Note: No else block needed here because filtering is now done in capture_frame_from_stream
+                    # If detections list is empty, it means either no AprilTags were found or none matched the target ID
                 else:
-                    # No AprilTag detected
+                    # No AprilTag detected or none matched target ID
                     if frame_count % 10 == 0:  # Log every 10 frames
-                        logger.debug(f"Frame {frame_count}: No AprilTag detected")
+                        if target_apriltag_id == -1:
+                            logger.debug(f"Frame {frame_count}: No AprilTag detected")
+                        else:
+                            logger.debug(f"Frame {frame_count}: No AprilTag detected with target ID {target_apriltag_id}")
 
                 # Short sleep to prevent overwhelming the system
                 await asyncio.sleep(0.1)  # 10 Hz processing rate
