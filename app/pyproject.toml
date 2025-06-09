@@ -11,5 +11,6 @@ dependencies = [
     "requests",
     "fastapi",
     "uvicorn[standard]",
-    "opencv-python"
+    "opencv-python",
+    "apriltag"
 ]
