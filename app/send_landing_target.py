@@ -43,8 +43,8 @@ except ImportError as e:
     settings = None
 
 # MAV2Rest default endpoint (BlueOS standard)
-# Using host.docker.internal as per working BlueOS examples
-MAV2REST_ENDPOINT = "http://host.docker.internal/mavlink2rest"
+# Since container uses host networking, try localhost first
+MAV2REST_ENDPOINT = "http://localhost:6040"
 
 # MAVLink message constants
 MAV_FRAME_GLOBAL = 0
@@ -141,11 +141,17 @@ class LandingTargetSender:
             Dictionary with connection test results
         """
         # List of common BlueOS MAV2Rest endpoints to try
+        # Since container uses host networking, try localhost first
         endpoints_to_try = [
+            "http://localhost:6040",
+            "http://127.0.0.1:6040",
+            "http://localhost:6041",  # Alternative port
+            "http://127.0.0.1:6041",
             self.mav2rest_endpoint,
-            "http://host.docker.internal/mavlink2rest",
+            "http://host.docker.internal:6040",
             "http://localhost/mavlink2rest",
-            "http://127.0.0.1/mavlink2rest"
+            "http://127.0.0.1/mavlink2rest",
+            "http://host.docker.internal/mavlink2rest"
         ]
 
         # Remove duplicates while preserving order
@@ -175,9 +181,12 @@ class LandingTargetSender:
                 else:
                     last_error = f"HTTP {response.status_code}"
                     logger.debug(f"MAV2Rest endpoint {endpoint} returned HTTP {response.status_code}")
+            except requests.exceptions.ConnectionError as e:
+                last_error = f"Connection error: {str(e)}"
+                logger.debug(f"MAV2Rest endpoint {endpoint} failed: {last_error}")
             except requests.RequestException as e:
-                last_error = str(e)
-                logger.debug(f"MAV2Rest endpoint {endpoint} failed: {e}")
+                last_error = f"Request error: {str(e)}"
+                logger.debug(f"MAV2Rest endpoint {endpoint} failed: {last_error}")
 
         # All endpoints failed
         logger.error(f"All MAV2Rest endpoints failed. Last error: {last_error}")
