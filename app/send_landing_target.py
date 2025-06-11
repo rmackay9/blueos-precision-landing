@@ -44,7 +44,7 @@ except ImportError as e:
 
 # MAV2Rest default endpoint (BlueOS standard)
 # Since container uses host networking, try localhost first
-MAV2REST_ENDPOINT = "http://localhost:6040"
+MAV2REST_ENDPOINT = "http://host.docker.internal:6040"
 
 # MAVLink message constants
 MAV_FRAME_GLOBAL = 0
