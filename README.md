@@ -40,6 +40,9 @@ To manually install the extension in BlueOS
       "/usr/blueos/extensions/precision-landing/settings:/app/settings",
       "/usr/blueos/extensions/precision-landing/logs:/app/logs"
       ],
+    "ExtraHosts": [
+      "host.docker.internal:host-gateway"
+    ],
     "PortBindings": {
       "8000/tcp": [
         {
