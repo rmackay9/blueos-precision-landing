@@ -12,9 +12,27 @@ import time
 import logging
 from typing import Dict, Any, Optional
 import json
+import urllib.request
 
 # Get logger
 logger = logging.getLogger("precision-landing")
+
+# BlueOS helper functions (similar to blueoshelper.py in working DVL example)
+def post_to_mav2rest(url: str, data: str) -> Optional[str]:
+    """
+    Sends a POST request to MAV2Rest with JSON data
+    Returns response text if successful, None otherwise
+    """
+    try:
+        jsondata = data.encode("ascii")  # data should be bytes
+        req = urllib.request.Request(url, jsondata)
+        req.add_header("Content-Type", "application/json")
+
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return response.read().decode()
+    except Exception as error:
+        logger.warning(f"Error in MAV2Rest POST: {url}: {error}")
+        return None
 
 # Import settings module
 try:
@@ -25,7 +43,8 @@ except ImportError as e:
     settings = None
 
 # MAV2Rest default endpoint (BlueOS standard)
-MAV2REST_ENDPOINT = "http://host.docker.internal:6040"
+# Using host.docker.internal as per working BlueOS examples
+MAV2REST_ENDPOINT = "http://host.docker.internal/mavlink2rest"
 
 # MAVLink message constants
 MAV_FRAME_GLOBAL = 0
@@ -78,6 +97,40 @@ class LandingTargetSender:
         self.last_send_time = 0
         self.min_send_interval = 0.1  # Minimum interval between messages (100ms)
 
+        # LANDING_TARGET message template (based on working BlueOS pattern)
+        self.landing_target_template = """{{
+  "header": {{
+    "system_id": 255,
+    "component_id": 0,
+    "sequence": 0
+  }},
+  "message": {{
+    "type": "LANDING_TARGET",
+    "time_usec": {time_usec},
+    "target_num": {target_num},
+    "frame": {{
+      "type": "MAV_FRAME_{frame_name}"
+    }},
+    "angle_x": {angle_x},
+    "angle_y": {angle_y},
+    "distance": {distance},
+    "size_x": {size_x},
+    "size_y": {size_y},
+    "x": {x},
+    "y": {y},
+    "z": {z},
+    "q": [
+      {q0},
+      {q1},
+      {q2},
+      {q3}
+    ],
+    "position_type": {{
+      "type": "LANDING_TARGET_TYPE_{position_type_name}"
+    }}
+  }}
+}}"""
+
         logger.info(f"LandingTargetSender initialized with endpoint: {mav2rest_endpoint}, target_system: {self.target_system}")
 
     def test_connection(self) -> Dict[str, Any]:
@@ -87,29 +140,53 @@ class LandingTargetSender:
         Returns:
             Dictionary with connection test results
         """
-        try:
-            response = requests.get(f"{self.mav2rest_endpoint}/mavlink", timeout=5)
-            if response.status_code == 200:
-                logger.info("MAV2Rest connection test successful")
-                return {
-                    "success": True,
-                    "message": "MAV2Rest API connection successful",
-                    "endpoint": self.mav2rest_endpoint
-                }
-            else:
-                logger.warning(f"MAV2Rest connection test failed: HTTP {response.status_code}")
-                return {
-                    "success": False,
-                    "message": f"MAV2Rest API returned HTTP {response.status_code}",
-                    "endpoint": self.mav2rest_endpoint
-                }
-        except requests.RequestException as e:
-            logger.error(f"MAV2Rest connection test failed: {str(e)}")
-            return {
-                "success": False,
-                "message": f"Failed to connect to MAV2Rest: {str(e)}",
-                "endpoint": self.mav2rest_endpoint
-            }
+        # List of common BlueOS MAV2Rest endpoints to try
+        endpoints_to_try = [
+            self.mav2rest_endpoint,
+            "http://host.docker.internal/mavlink2rest",
+            "http://localhost/mavlink2rest",
+            "http://127.0.0.1/mavlink2rest"
+        ]
+
+        # Remove duplicates while preserving order
+        unique_endpoints = []
+        for endpoint in endpoints_to_try:
+            if endpoint not in unique_endpoints:
+                unique_endpoints.append(endpoint)
+
+        last_error = None
+
+        for endpoint in unique_endpoints:
+            try:
+                logger.debug(f"Testing MAV2Rest endpoint: {endpoint}")
+                response = requests.get(f"{endpoint}/mavlink", timeout=3)
+                if response.status_code == 200:
+                    logger.info(f"MAV2Rest connection successful on: {endpoint}")
+                    # Update the endpoint if we found a working one different from default
+                    if endpoint != self.mav2rest_endpoint:
+                        logger.info(f"Updating MAV2Rest endpoint from {self.mav2rest_endpoint} to {endpoint}")
+                        self.mav2rest_endpoint = endpoint
+                    return {
+                        "success": True,
+                        "message": "MAV2Rest API connection successful",
+                        "endpoint": endpoint,
+                        "tested_endpoints": unique_endpoints
+                    }
+                else:
+                    last_error = f"HTTP {response.status_code}"
+                    logger.debug(f"MAV2Rest endpoint {endpoint} returned HTTP {response.status_code}")
+            except requests.RequestException as e:
+                last_error = str(e)
+                logger.debug(f"MAV2Rest endpoint {endpoint} failed: {e}")
+
+        # All endpoints failed
+        logger.error(f"All MAV2Rest endpoints failed. Last error: {last_error}")
+        return {
+            "success": False,
+            "message": f"Failed to connect to any MAV2Rest endpoint. Last error: {last_error}",
+            "tested_endpoints": unique_endpoints,
+            "last_error": last_error
+        }
 
     def send_landing_target(self,
                           angle_x: float,
@@ -149,38 +226,67 @@ class LandingTargetSender:
             # Get current time in microseconds since UNIX epoch
             time_usec = int(current_time * 1000000)
 
-            # Construct LANDING_TARGET message
-            landing_target_msg = {
-                "type": "LANDING_TARGET",
-                "time_usec": time_usec,
-                "target_num": target_num,
-                "frame": frame,
-                "angle_x": angle_x,
-                "angle_y": angle_y,
-                "distance": distance,
-                "size_x": size_x,
-                "size_y": size_y,
-                "x": 0.0,  # X Position of the landing target in MAV_FRAME (not used for angular)
-                "y": 0.0,  # Y Position of the landing target in MAV_FRAME (not used for angular)
-                "z": 0.0,  # Z Position of the landing target in MAV_FRAME (not used for angular)
-                "q": [1.0, 0.0, 0.0, 0.0],  # Quaternion of landing target orientation (not used)
-                "position_type": position_type
+            # Map frame integer to frame name
+            frame_names = {
+                MAV_FRAME_GLOBAL: "GLOBAL",
+                MAV_FRAME_LOCAL_NED: "LOCAL_NED",
+                MAV_FRAME_MISSION: "MISSION",
+                MAV_FRAME_GLOBAL_RELATIVE_ALT: "GLOBAL_RELATIVE_ALT",
+                MAV_FRAME_LOCAL_ENU: "LOCAL_ENU",
+                MAV_FRAME_GLOBAL_INT: "GLOBAL_INT",
+                MAV_FRAME_GLOBAL_RELATIVE_ALT_INT: "GLOBAL_RELATIVE_ALT_INT",
+                MAV_FRAME_LOCAL_OFFSET_NED: "LOCAL_OFFSET_NED",
+                MAV_FRAME_BODY_NED: "BODY_NED",
+                MAV_FRAME_BODY_OFFSET_NED: "BODY_OFFSET_NED",
+                MAV_FRAME_GLOBAL_TERRAIN_ALT: "GLOBAL_TERRAIN_ALT",
+                MAV_FRAME_GLOBAL_TERRAIN_ALT_INT: "GLOBAL_TERRAIN_ALT_INT",
+                MAV_FRAME_BODY_FRD: "BODY_FRD",
+                MAV_FRAME_BODY_FLU: "BODY_FLU",
+                MAV_FRAME_MOCAP_NED: "MOCAP_NED",
+                MAV_FRAME_MOCAP_ENU: "MOCAP_ENU",
+                MAV_FRAME_VISION_NED: "VISION_NED",
+                MAV_FRAME_VISION_ENU: "VISION_ENU"
             }
 
-            # Send message via MAV2Rest
-            url = f"{self.mav2rest_endpoint}/mavlink"
-            headers = {
-                "Content-Type": "application/json"
+            # Map position type integer to type name
+            position_type_names = {
+                LANDING_TARGET_TYPE_LIGHT_BEACON: "LIGHT_BEACON",
+                LANDING_TARGET_TYPE_RADIO_BEACON: "RADIO_BEACON",
+                LANDING_TARGET_TYPE_VISION_FIDUCIAL: "VISION_FIDUCIAL",
+                LANDING_TARGET_TYPE_VISION_OTHER: "VISION_OTHER"
             }
+
+            frame_name = frame_names.get(frame, "BODY_FRD")
+            position_type_name = position_type_names.get(position_type, "VISION_FIDUCIAL")
+
+            # Format the LANDING_TARGET message using BlueOS-style template
+            landing_target_data = self.landing_target_template.format(
+                time_usec=time_usec,
+                target_num=target_num,
+                frame_name=frame_name,
+                angle_x=angle_x,
+                angle_y=angle_y,
+                distance=distance,
+                size_x=size_x,
+                size_y=size_y,
+                x=0.0,  # X Position of the landing target in MAV_FRAME (not used for angular)
+                y=0.0,  # Y Position of the landing target in MAV_FRAME (not used for angular)
+                z=0.0,  # Z Position of the landing target in MAV_FRAME (not used for angular)
+                q0=1.0,  # Quaternion of landing target orientation (not used)
+                q1=0.0,
+                q2=0.0,
+                q3=0.0,
+                position_type_name=position_type_name
+            )
+
+            # Send message via MAV2Rest using BlueOS-style post
+            url = f"{self.mav2rest_endpoint}/mavlink"
 
             logger.debug(f"Sending LANDING_TARGET: angle_x={angle_x:.4f}, angle_y={angle_y:.4f}, distance={distance:.2f}")
 
-            response = requests.post(url,
-                                   json=landing_target_msg,
-                                   headers=headers,
-                                   timeout=2)
+            response = post_to_mav2rest(url, landing_target_data)
 
-            if response.status_code == 200:
+            if response is not None:
                 self.last_send_time = current_time
                 logger.debug("LANDING_TARGET message sent successfully")
                 return {
@@ -188,23 +294,17 @@ class LandingTargetSender:
                     "message": "LANDING_TARGET message sent successfully",
                     "time_usec": time_usec,
                     "angle_x": angle_x,
-                    "angle_y": angle_y
+                    "angle_y": angle_y,
+                    "response": response
                 }
             else:
-                logger.warning(f"Failed to send LANDING_TARGET: HTTP {response.status_code}")
+                logger.warning(f"Failed to send LANDING_TARGET: No response from MAV2Rest")
                 return {
                     "success": False,
-                    "message": f"MAV2Rest returned HTTP {response.status_code}: {response.text}",
-                    "http_status": response.status_code
+                    "message": "MAV2Rest returned no response",
+                    "network_error": True
                 }
 
-        except requests.RequestException as e:
-            logger.error(f"Network error sending LANDING_TARGET: {str(e)}")
-            return {
-                "success": False,
-                "message": f"Network error: {str(e)}",
-                "network_error": True
-            }
         except Exception as e:
             logger.error(f"Unexpected error sending LANDING_TARGET: {str(e)}")
             return {
