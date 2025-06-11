@@ -5,29 +5,24 @@
 # - Save camera settings including type and RTSP URL
 # - Get camera settings including last used settings
 # - Save/get precision landing enabled state (persistent across restarts)
-# - "Test" button to view the live video and capture the april tag location (placeholder)
-# - "Run" button to enable the precision landing including sending MAVLink messages to the vehicle (placeholder)
+# - "Test" button to view the live video and capture the april tag location
+# - "Run" button to enable the precision landing including sending MAVLink messages to the vehicle
 # - Status endpoint to check if precision landing is currently running
 
 import logging.handlers
 import sys
 import asyncio
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
 from typing import Dict, Any
-from pydantic import BaseModel
 
-# Import the settings module
+# Import the local modules
 from app import settings
-# Import the image capture module
 from app import image_capture
-# Import the landing target sender module
 from app import send_landing_target
-# Import the april_tags module
-from app import april_tags
 
 # Configure console logging
 console_handler = logging.StreamHandler(sys.stdout)
@@ -56,13 +51,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # Global variable to track precision landing running state
-# In a real implementation, this might be a more sophisticated state management system
 precision_landing_running = False
-precision_landing_process = None
-
-# Pydantic models for request bodies
-class EnabledState(BaseModel):
-    enabled: bool
 
 logger.info("Precision Landing backend started")
 
@@ -70,7 +59,7 @@ logger.info("Precision Landing backend started")
 # Internal function to start precision landing
 async def start_precision_landing_internal(camera_type: str = None, rtsp_url: str = None):
     """Internal function to start the precision landing process"""
-    global precision_landing_running, precision_landing_process
+    global precision_landing_running
 
     try:
         logger.info("Starting precision landing process")
@@ -112,7 +101,6 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
 
         # Precision landing main loop
         frame_count = 0
-        last_detection_time = 0
 
         while precision_landing_running:
             try:
@@ -147,7 +135,6 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
                         )
 
                         if send_result["success"]:
-                            last_detection_time = frame_count
                             logger.info(f"Frame {frame_count}: Sent LANDING_TARGET for AprilTag ID {largest_tag['tag_id']} "
                                       f"(angle_x={send_result['angles']['angle_x_deg']:.2f}°, "
                                       f"angle_y={send_result['angles']['angle_y_deg']:.2f}°)")
@@ -192,6 +179,7 @@ async def startup_auto_restart():
 
 # Precision Landing API Endpoints
 
+# Save precision landing settings
 @app.post("/precision-landing/save-settings")
 async def save_precision_landing_settings(
     type: str,
@@ -216,7 +204,7 @@ async def save_precision_landing_settings(
     # Save MAVLink settings
     mavlink_success = True
     if flight_controller_sysid is not None:
-        mavlink_success = settings.update_mavlink_settings(flight_controller_sysid)
+        mavlink_success = settings.update_mavlink_flight_controller_sysid(flight_controller_sysid)
 
     if camera_success and apriltag_success and mavlink_success:
         return {"success": True, "message": f"Settings saved for {type}"}
@@ -224,6 +212,7 @@ async def save_precision_landing_settings(
         return {"success": False, "message": "Failed to save some settings"}
 
 
+# Load precision landing settings
 @app.post("/precision-landing/get-settings")
 async def get_precision_landing_settings() -> Dict[str, Any]:
     """Get saved camera settings"""
@@ -266,6 +255,7 @@ async def get_precision_landing_settings() -> Dict[str, Any]:
         return {"success": False, "message": f"Error: {str(e)}"}
 
 
+# Save precision landing enabled state
 @app.post("/precision-landing/save-enabled-state")
 async def save_precision_landing_enabled_state(enabled: bool) -> Dict[str, Any]:
     """Save precision landing enabled state to persistent storage (using query parameter)"""
@@ -278,8 +268,8 @@ async def save_precision_landing_enabled_state(enabled: bool) -> Dict[str, Any]:
         return {"success": False, "message": "Failed to save enabled state"}
 
 
+# Get precision landing enabled state
 @app.get("/precision-landing/get-enabled-state")
-@app.post("/precision-landing/get-enabled-state")
 async def get_precision_landing_enabled_state() -> Dict[str, Any]:
     """Get saved precision landing enabled state (supports both GET and POST)"""
     logger.info("Getting precision landing enabled state")
@@ -295,6 +285,7 @@ async def get_precision_landing_enabled_state() -> Dict[str, Any]:
         return {"success": False, "message": f"Error: {str(e)}", "enabled": False}
 
 
+# Test image retrieval from the RTSP stream and AprilTag detection
 @app.post("/precision-landing/test")
 async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
     """Test precision landing functionality with RTSP connection"""
@@ -330,9 +321,10 @@ async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.exception(f"Error during precision landing test: {str(e)}")
-        return {"success": False, "message": f"Test failed2: {str(e)}"}
+        return {"success": False, "message": f"Test failed: {str(e)}"}
 
 
+# Start precision landing (this is called by the frontend's "Run" button)
 @app.post("/precision-landing/start")
 async def start_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
     """Start precision landing"""
@@ -356,10 +348,11 @@ async def start_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
         return {"success": False, "message": f"Failed to start: {str(e)}"}
 
 
+# Stop precision landing (this is called by the frontend's "Stop" button)
 @app.post("/precision-landing/stop")
 async def stop_precision_landing() -> Dict[str, Any]:
     """Stop precision landing"""
-    global precision_landing_running, precision_landing_process
+    global precision_landing_running
 
     logger.info("Stop precision landing request received")
 
@@ -370,11 +363,6 @@ async def stop_precision_landing() -> Dict[str, Any]:
         # Stop the precision landing process
         precision_landing_running = False
 
-        # If we had a process handle, we could terminate it here
-        if precision_landing_process:
-            precision_landing_process.terminate()
-            precision_landing_process = None
-
         return {
             "success": True,
             "message": "Precision landing stopped successfully"
@@ -384,10 +372,10 @@ async def stop_precision_landing() -> Dict[str, Any]:
         return {"success": False, "message": f"Failed to stop: {str(e)}"}
 
 
+# Get precision landing running status
 @app.get("/precision-landing/status")
-@app.post("/precision-landing/status")
 async def get_precision_landing_status() -> Dict[str, Any]:
-    """Get precision landing status (supports both GET and POST)"""
+    """Get precision landing running status"""
     logger.debug("Getting precision landing status")
 
     try:
@@ -401,6 +389,7 @@ async def get_precision_landing_status() -> Dict[str, Any]:
         return {"success": False, "message": f"Error: {str(e)}", "running": False}
 
 
+# Test MAV2Rest MAVLink connection
 @app.post("/precision-landing/test-mavlink")
 async def test_mavlink_connection() -> Dict[str, Any]:
     """Test MAV2Rest MAVLink connection"""
