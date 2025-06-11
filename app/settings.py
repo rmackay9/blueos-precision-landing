@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# Precision Landing Settings Management
+
 import json
 import os
 import logging
@@ -146,21 +148,6 @@ def update_camera_settings(camera_type, rtsp, horizontal_fov=None):
         return False
 
 
-# update the camera RTSP URL in the settings file (backward compatibility)
-def update_camera_rtsp(camera_type, rtsp):
-    """
-    Update the RTSP URL for a specific camera type (backward compatibility function)
-
-    Args:
-        camera_type (str): The camera type ("siyi-a8", "siyi-zr10", "siyi-zt6-ir", "siyi-zt6-rgb")
-        rtsp (str): The RTSP URL
-
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    return update_camera_settings(camera_type, rtsp)
-
-
 # get the latest RTSP URL for a specific camera type
 def get_camera_rtsp(camera_type):
     """
@@ -290,12 +277,13 @@ def get_apriltag_target_id():
     Get the AprilTag target ID setting
 
     Returns:
-        int: The AprilTag target ID (default: 0)
+        int: The AprilTag target ID (default: -1)
     """
     settings = get_settings()
     return settings.get('apriltag', {}).get('target_id', DEFAULT_SETTINGS['apriltag']['target_id'])
 
 
+# update AprilTag settings
 def update_apriltag_settings(family=None, target_id=None):
     """
     Update AprilTag settings
@@ -328,7 +316,7 @@ def update_apriltag_settings(family=None, target_id=None):
         return False
 
 
-# get and update MAVLink settings
+# get MAVLink flight controller sysid
 def get_mavlink_flight_controller_sysid():
     """
     Get the MAVLink flight controller system ID setting
@@ -340,9 +328,10 @@ def get_mavlink_flight_controller_sysid():
     return settings.get('mavlink', {}).get('flight_controller_sysid', DEFAULT_SETTINGS['mavlink']['flight_controller_sysid'])
 
 
-def update_mavlink_settings(flight_controller_sysid=None):
+# update MAVLink flight controller sysid
+def update_mavlink_flight_controller_sysid(flight_controller_sysid=None):
     """
-    Update MAVLink settings
+    Update MAVLink flight controller sysid
 
     Args:
         flight_controller_sysid (int, optional): The flight controller system ID
