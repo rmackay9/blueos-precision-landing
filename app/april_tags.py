@@ -62,23 +62,27 @@ class AprilTagDetector:
             logger.error("Cannot initialize AprilTag detector - library not available")
 
 
-def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11") -> Dict[str, Any]:
+def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11", target_id: int = -1) -> Dict[str, Any]:
     """
     Detect AprilTags in an image and return augmented image with detection data
 
     Args:
         image: Input image as numpy array (BGR format from OpenCV)
         tag_family: AprilTag family to detect
+        target_id: Target AprilTag ID to detect (-1 means detect any ID, 0+ means detect only that specific ID)
 
     Returns:
         Dictionary containing:
         - success: bool indicating if detection was successful
         - augmented_image: Image with red boxes drawn around detected tags
         - augmented_image_base64: Base64 encoded augmented image
-        - detections: List of detected tag information
+        - detections: List of detected tag information (filtered by target_id if specified)
         - message: Status message
     """
-    logger.info("Starting AprilTag detection")
+    if target_id == -1:
+        logger.info("Starting AprilTag detection (accepting any ID)")
+    else:
+        logger.info(f"Starting AprilTag detection (targeting ID {target_id})")
 
     if not APRILTAG_AVAILABLE:
         return {
@@ -111,16 +115,23 @@ def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11") -> Dict[s
         # Create augmented image (copy original)
         augmented_image = image.copy()
 
-        # Process detections
+        # Process detections and filter by target_id at detection time
         detection_data = []
+        all_detected_ids = []
 
         for detection in detections:
             # Get tag information
             tag_id = detection.tag_id
+            all_detected_ids.append(int(tag_id))
+
+            # Filter by target_id at detection time for efficiency
+            if target_id != -1 and tag_id != target_id:
+                continue  # Skip this detection if it doesn't match target_id
+
             center = detection.center
             corners = detection.corners
 
-            # Calculate relative size (diagonal length of bounding box)
+            # ...existing code...
             corner_array = np.array(corners)
             width = np.max(corner_array[:, 0]) - np.min(corner_array[:, 0])
             height = np.max(corner_array[:, 1]) - np.min(corner_array[:, 1])
@@ -156,11 +167,24 @@ def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11") -> Dict[s
         _, buffer = cv2.imencode('.jpg', augmented_image)
         augmented_image_base64 = base64.b64encode(buffer).decode('utf-8')
 
-        logger.info(f"AprilTag detection completed. Found {len(detection_data)} tags")
+        # Generate appropriate message based on filtering
+        if target_id == -1:
+            message = f"Detected {len(detection_data)} AprilTag(s) (accepting any ID)"
+            logger.info(f"AprilTag detection completed. Found {len(detection_data)} tags (any ID)")
+        else:
+            if len(detection_data) == 0 and len(all_detected_ids) > 0:
+                message = f"Found AprilTags {all_detected_ids} but looking for specific ID {target_id}"
+                logger.info(f"AprilTag detection completed. Found {all_detected_ids} but targeting ID {target_id}")
+            else:
+                message = f"Detected {len(detection_data)} AprilTag(s) with ID {target_id}"
+                logger.info(f"AprilTag detection completed. Found {len(detection_data)} tags with ID {target_id}")
+
+        # If no matching tags found for specific target_id, mark as unsuccessful
+        success = len(detection_data) > 0 if target_id != -1 else True
 
         return {
-            "success": True,
-            "message": f"Detected {len(detection_data)} AprilTag(s)",
+            "success": success,
+            "message": message,
             "detections": detection_data,
             "augmented_image_base64": augmented_image_base64
         }
@@ -175,13 +199,14 @@ def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11") -> Dict[s
         }
 
 
-def detect_april_tags_from_base64(image_base64: str, tag_family: str = "tag36h11") -> Dict[str, Any]:
+def detect_april_tags_from_base64(image_base64: str, tag_family: str = "tag36h11", target_id: int = -1) -> Dict[str, Any]:
     """
     Detect AprilTags from a base64 encoded image
 
     Args:
         image_base64: Base64 encoded image string
         tag_family: AprilTag family to detect
+        target_id: Target AprilTag ID to detect (-1 means detect any ID, 0+ means detect only that specific ID)
 
     Returns:
         Dictionary containing detection results (same as detect_april_tags)
@@ -201,7 +226,7 @@ def detect_april_tags_from_base64(image_base64: str, tag_family: str = "tag36h11
             }
 
         # Perform detection
-        return detect_april_tags(image, tag_family)
+        return detect_april_tags(image, tag_family, target_id)
 
     except Exception as e:
         logger.exception(f"Error processing base64 image: {str(e)}")
@@ -292,71 +317,4 @@ def get_supported_tag_families() -> List[str]:
     return ["tag36h11", "tag25h9", "tag16h5", "tagCircle21h7", "tagStandard41h12"]
 
 
-def filter_april_tag_detections(detections: List[Dict[str, Any]], target_id: int) -> List[Dict[str, Any]]:
-    """
-    Filter AprilTag detections by target ID
 
-    Args:
-        detections: List of AprilTag detection dictionaries
-        target_id: Target AprilTag ID to filter by (-1 means accept any ID, 0+ means accept only that specific ID)
-
-    Returns:
-        List of filtered detections
-    """
-    if not detections:
-        return []
-
-    if target_id == -1:
-        # Accept any AprilTag ID
-        return detections
-    else:
-        # Only accept specific AprilTag ID
-        return [d for d in detections if d.get("tag_id") == target_id]
-
-
-def filter_april_tag_detection_result(detection_result: Dict[str, Any], target_id: int) -> Dict[str, Any]:
-    """
-    Filter an AprilTag detection result by target ID and regenerate augmented image
-
-    Args:
-        detection_result: AprilTag detection result dictionary from detect_april_tags()
-        target_id: Target AprilTag ID to filter by (-1 means accept any ID, 0+ means accept only that specific ID)
-
-    Returns:
-        Filtered detection result with updated detections list and regenerated augmented image
-    """
-    if not detection_result.get("success"):
-        return detection_result
-
-    # Filter detections
-    all_detections = detection_result.get("detections", [])
-    filtered_detections = filter_april_tag_detections(all_detections, target_id)
-
-    # Create a copy of the result
-    filtered_result = detection_result.copy()
-    filtered_result["detections"] = filtered_detections
-
-    # Update message
-    if target_id == -1:
-        filtered_result["message"] = f"Detected {len(filtered_detections)} AprilTag(s) (accepting any ID)"
-    else:
-        if len(filtered_detections) == 0 and len(all_detections) > 0:
-            detected_ids = [d.get("tag_id") for d in all_detections]
-            filtered_result["message"] = f"Found AprilTags {detected_ids} but looking for specific ID {target_id}"
-            filtered_result["success"] = False
-        else:
-            filtered_result["message"] = f"Detected {len(filtered_detections)} AprilTag(s) with ID {target_id}"
-
-    # If we need to regenerate the augmented image with only filtered detections
-    if filtered_detections != all_detections:
-        # Try to regenerate augmented image with only filtered detections
-        try:
-            # We need the original image to regenerate, but we don't have it here
-            # For now, we'll keep the original augmented image
-            # In the future, we could modify detect_april_tags to return the original image
-            # or modify this function to accept the original image as a parameter
-            pass
-        except Exception as e:
-            logger.warning(f"Could not regenerate augmented image for filtered detections: {e}")
-
-    return filtered_result
