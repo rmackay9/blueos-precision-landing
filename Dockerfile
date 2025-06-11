@@ -36,14 +36,13 @@ LABEL permissions='\
     "8000/tcp": {}\
   },\
   "HostConfig": {\
-    "NetworkMode": "host",\
     "Binds":[\
       "/usr/blueos/extensions/precision-landing/settings:/app/settings",\
       "/usr/blueos/extensions/precision-landing/logs:/app/logs"\
     ],\
-    "ExtraHosts": ["host.docker.internal:host-gateway"],\
-    "CapAdd": ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"],\
-    "Privileged": false,\
+    "ExtraHosts": [\
+      "host.docker.internal:host-gateway"\
+    ],\
     "PortBindings": {\
       "8000/tcp": [\
         {\
