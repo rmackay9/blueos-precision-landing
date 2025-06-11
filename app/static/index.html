@@ -4,9 +4,15 @@
     The page includes these elements:
     - Camera Type dropdown to select the camera being used (e.g. Siyi, XFRobot)
     - RTSP URL of the live camera feed
+    - Horizontal FOV input
+    - AprilTag Family dropdown
+    - AprilTag ID input to specify which tag to detect (-1 for any tag)
+    - Flight Controller SysID input to specify the vehicle's mavlink system ID
     - Save Settings button to save the selected camera type and RTSP URL
     - "Test" button to view the live video and capture the april tag location
+    - "Test MAVLink" button to test the MAVLink connection via MAV2Rest
     - "Run" button to enable the precision landing including sending MAVLink messages to the vehicle.  This setting is persistent
+    - Captured Images display area to show the latest captured frame (appears only after Test button is pressed)
     - Progress text area to display the status of the latest action
 
     Each buttons calls function executed by the main.py python backend
@@ -90,10 +96,12 @@
             .mb-3 {
                 margin-bottom: 15px;
             }
+            .text-muted {
+                color: #6c757d;
+                font-size: 0.875em;
+            }
         </style>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
-              integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEBFlcgUa6xLiPY/NS5R+E6ztJQ=="
-              crossorigin="anonymous" referrerpolicy="no-referrer" />
+
     </head>
     <body>
         <div class="container">
@@ -143,7 +151,7 @@
                         <!-- AprilTag ID input -->
                         <label for="tagId" class="col-form-label">AprilTag ID:</label>
                         <div class="col-sm-9">
-                            <input type="number" class="form-control" id="tagId" value="-1" min="-1" max="9999">
+                            <input type="number" class="form-control" id="tagId" value="-1" min="-1" max="2115">
                             <small class="form-text text-muted">Use -1 to accept any AprilTag ID, or specify a specific ID (0-9999)</small>
                         </div>
                     </div>
@@ -610,7 +618,7 @@
                             if (data.success) {
                                 progressLog.value += `MAVLink connection successful!\n`;
                                 progressLog.value += `Endpoint: ${data.endpoint}\n`;
-                                progressLog.value += "Ready to send LANDING_TARGET messages to vehicle\n";
+                                progressLog.value += "LANDING_TARGET message sent\n";
                             } else {
                                 progressLog.value += `MAVLink connection failed: ${data.message}\n`;
                             }
