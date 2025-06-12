@@ -65,26 +65,24 @@ async def startup_auto_restart():
         enabled = settings.get_precision_landing_enabled()
         if enabled:
             logger.info("Auto-restarting precision landing as it was previously enabled")
+            # Get last used settings for auto-restart
+            last_used = settings.get_last_used()
+            camera_type = last_used.get("camera_type", "siyi-a8")
+            rtsp_url = last_used.get("rtsp", "rtsp://192.168.144.25:8554/main.264")
             # Don't await this so startup doesn't block
-            asyncio.create_task(start_precision_landing_internal())
+            asyncio.create_task(start_precision_landing_internal(camera_type, rtsp_url))
     except Exception as e:
         logger.error(f"Error during auto-restart check: {str(e)}")
 
 
 # Internal function to start precision landing
-async def start_precision_landing_internal(camera_type: str = None, rtsp_url: str = None):
+async def start_precision_landing_internal(camera_type: str, rtsp_url: str):
     """Internal function to start the precision landing process"""
     global precision_landing_running
 
     try:
         logger.info("Starting precision landing process")
         precision_landing_running = True
-
-        # Get camera settings if not provided
-        if camera_type is None or rtsp_url is None:
-            last_used = settings.get_last_used()
-            camera_type = camera_type or last_used.get("camera_type", "siyi-a8")
-            rtsp_url = rtsp_url or last_used.get("rtsp", "rtsp://192.168.144.25:8554/main.264")
 
         logger.info(f"Precision landing using camera: {camera_type}, RTSP: {rtsp_url}")
 
@@ -95,10 +93,19 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
         # Get MAVLink target system ID from settings
         target_system_id = settings.get_mavlink_sysid()
 
-        # Test MAV2Rest connection
-        mav_test = send_landing_target.test_mav2rest_connection(target_system_id)
+        # Test MAV2Rest connection by sending a test LANDING_TARGET message
+        logger.info(f"Testing MAV2Rest connection with SysID {target_system_id}")
+        mav_test = send_landing_target.send_landing_target_msg(
+            angle_x=0.0,
+            angle_y=0.0,
+            distance=0.0,
+            size_x=0.0,
+            size_y=0.0,
+            target_num=0,
+            sysid=target_system_id
+        )
         if not mav_test["success"]:
-            logger.error(f"MAV2Rest connection failed: {mav_test['message']}")
+            logger.error(f"MAV2Rest connection test failed: {mav_test['message']}")
             precision_landing_running = False
             return
 
@@ -194,22 +201,41 @@ def calculate_vertical_fov(hfov_deg: float, width: int, height: int) -> float:
        tan(vfov/2) = tan(hfov/2) * (height/width)
     """
 
-    # sanity check width
+    # Validate inputs to prevent mathematical errors
     if width <= 0:
-        return 0
+        logger.error(f"Invalid image width: {width}")
+        return 0.0
 
-    # Convert horizontal FOV from degrees to radians
-    hfov_rad = radians(hfov_deg)
+    if height <= 0:
+        logger.error(f"Invalid image height: {height}")
+        return 0.0
 
-    # Calculate aspect ratio
-    aspect_ratio = height / width
+    if hfov_deg <= 0 or hfov_deg >= 180:
+        logger.error(f"Invalid horizontal FOV: {hfov_deg}° (must be between 0 and 180)")
+        return 0.0
 
-    # Use trigonometric relationship to calculate vertical FOV
-    vfov_rad = 2 * atan(tan(hfov_rad / 2) * aspect_ratio)
+    try:
+        # Convert horizontal FOV from degrees to radians
+        hfov_rad = radians(hfov_deg)
 
-    # Convert back to degrees
-    vfov_deg = degrees(vfov_rad)
-    return vfov_deg
+        # Calculate aspect ratio
+        aspect_ratio = height / width
+
+        # Use trigonometric relationship to calculate vertical FOV
+        vfov_rad = 2 * atan(tan(hfov_rad / 2) * aspect_ratio)
+
+        # Convert back to degrees
+        vfov_deg = degrees(vfov_rad)
+
+        # Sanity check result
+        if vfov_deg <= 0 or vfov_deg >= 180:
+            logger.error(f"Calculated invalid vertical FOV: {vfov_deg}°")
+            return 0.0
+
+        return vfov_deg
+    except (ValueError, OverflowError) as e:
+        logger.error(f"Mathematical error in vertical FOV calculation: {e}")
+        return 0.0
 
 # Precision Landing API Endpoints
 
@@ -261,10 +287,10 @@ async def get_precision_landing_settings() -> Dict[str, Any]:
 async def save_precision_landing_settings(
     type: str,
     rtsp: str,
-    fov: float = None,
-    apriltag_family: str = None,
-    tag_id: int = None,
-    flight_controller_sysid: int = None  # Keep this for HTML compatibility
+    fov: float,
+    apriltag_family: str,
+    tag_id: int,
+    flight_controller_sysid: int  # Keep this for HTML compatibility
 ) -> Dict[str, Any]:
     """Save camera settings and other precision landing settings to persistent storage (using query parameters)"""
     # Map flight_controller_sysid to sysid for internal use
@@ -276,14 +302,10 @@ async def save_precision_landing_settings(
     camera_success = settings.update_camera_settings(type, rtsp, fov)
 
     # Save AprilTag settings
-    apriltag_success = True
-    if apriltag_family is not None or tag_id is not None:
-        apriltag_success = settings.update_apriltag_settings(apriltag_family, tag_id)
+    apriltag_success = settings.update_apriltag_settings(apriltag_family, tag_id)
 
     # Save MAVLink settings
-    mavlink_success = True
-    if sysid is not None:
-        mavlink_success = settings.update_mavlink_sysid(sysid)
+    mavlink_success = settings.update_mavlink_sysid(sysid)
 
     if camera_success and apriltag_success and mavlink_success:
         return {"success": True, "message": f"Settings saved for {type}"}
@@ -431,11 +453,29 @@ async def test_mavlink_connection() -> Dict[str, Any]:
     """Test MAV2Rest MAVLink connection"""
     try:
         target_system_id = settings.get_mavlink_sysid()
-        result = send_landing_target.test_mav2rest_connection(target_system_id)
+        result = send_landing_target.send_landing_target_msg(
+            angle_x=0.0,
+            angle_y=0.0,
+            distance=0.0,
+            size_x=0.0,
+            size_y=0.0,
+            target_num=0,
+            sysid=target_system_id
+        )
         if result["success"]:
             logger.info("MAV2Rest connection test successful")
+            return {
+                "success": True,
+                "message": f"MAV2Rest API connection successful, test LANDING_TARGET sent to SysID {target_system_id}",
+                "endpoint": send_landing_target.MAV2REST_ENDPOINT
+            }
         else:
             logger.warning(f"MAV2Rest connection test failed: {result['message']}")
+            return {
+                "success": False,
+                "message": f"MAV2Rest connected but test message failed: {result['message']}",
+                "endpoint": send_landing_target.MAV2REST_ENDPOINT
+            }
         return result
     except Exception as e:
         logger.exception(f"Error during MAV2Rest test: {str(e)}")

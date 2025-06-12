@@ -101,14 +101,14 @@ def save_settings(settings):
 
 
 # update the camera RTSP URL and FOV in the settings file
-def update_camera_settings(camera_type, rtsp, horizontal_fov=None):
+def update_camera_settings(camera_type, rtsp, horizontal_fov):
     """
     Update the RTSP URL and horizontal FOV for a specific camera type
 
     Args:
         camera_type (str): The camera type ("siyi-a8", "siyi-zr10", "siyi-zt6-ir", "siyi-zt6-rgb")
         rtsp (str): The RTSP URL
-        horizontal_fov (float, optional): The horizontal field of view in degrees
+        horizontal_fov (float): The horizontal field of view in degrees
 
     Returns:
         bool: True if successful, False otherwise
@@ -121,24 +121,14 @@ def update_camera_settings(camera_type, rtsp, horizontal_fov=None):
             settings['cameras'][camera_type] = {}
 
         settings['cameras'][camera_type]['rtsp'] = rtsp
-
-        if horizontal_fov is not None:
-            settings['cameras'][camera_type]['horizontal_fov'] = horizontal_fov
+        settings['cameras'][camera_type]['horizontal_fov'] = horizontal_fov
 
         # Update last used settings
         last_used = {
             'camera_type': camera_type,
-            'rtsp': rtsp
+            'rtsp': rtsp,
+            'horizontal_fov': horizontal_fov
         }
-        if horizontal_fov is not None:
-            last_used['horizontal_fov'] = horizontal_fov
-        else:
-            # Use existing FOV if available
-            if camera_type in settings['cameras'] and 'horizontal_fov' in settings['cameras'][camera_type]:
-                last_used['horizontal_fov'] = settings['cameras'][camera_type]['horizontal_fov']
-            elif camera_type in DEFAULT_SETTINGS['cameras']:
-                last_used['horizontal_fov'] = DEFAULT_SETTINGS['cameras'][camera_type]['horizontal_fov']
-
         settings['last_used'] = last_used
 
         save_settings(settings)
@@ -285,13 +275,13 @@ def get_apriltag_target_id():
 
 
 # update AprilTag settings
-def update_apriltag_settings(family=None, target_id=None):
+def update_apriltag_settings(family, target_id):
     """
     Update AprilTag settings
 
     Args:
-        family (str, optional): The AprilTag family
-        target_id (int, optional): The target ID
+        family (str): The AprilTag family
+        target_id (int): The target ID
 
     Returns:
         bool: True if successful, False otherwise
@@ -303,11 +293,8 @@ def update_apriltag_settings(family=None, target_id=None):
         if 'apriltag' not in settings:
             settings['apriltag'] = {}
 
-        if family is not None:
-            settings['apriltag']['family'] = family
-
-        if target_id is not None:
-            settings['apriltag']['target_id'] = target_id
+        settings['apriltag']['family'] = family
+        settings['apriltag']['target_id'] = target_id
 
         save_settings(settings)
         logger.debug(f"Updated AprilTag settings - family: {family}, target_id: {target_id}")
@@ -330,12 +317,12 @@ def get_mavlink_sysid():
 
 
 # update MAVLink sysid
-def update_mavlink_sysid(sysid=None):
+def update_mavlink_sysid(sysid):
     """
     Update MAVLink sysid
 
     Args:
-        sysid (int, optional): The system ID
+        sysid (int): The system ID
 
     Returns:
         bool: True if successful, False otherwise
@@ -347,8 +334,7 @@ def update_mavlink_sysid(sysid=None):
         if 'mavlink' not in settings:
             settings['mavlink'] = {}
 
-        if sysid is not None:
-            settings['mavlink']['sysid'] = sysid
+        settings['mavlink']['sysid'] = sysid
 
         save_settings(settings)
         logger.debug(f"Updated MAVLink settings - sysid: {sysid}")

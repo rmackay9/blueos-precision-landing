@@ -7,7 +7,6 @@ This module handles sending LANDING_TARGET MAVLink messages to the vehicle
 via BlueOS MAV2Rest API interface.
 """
 
-import requests
 import time
 import logging
 from typing import Dict, Any, Optional
@@ -75,71 +74,6 @@ def post_to_mav2rest(url: str, data: str) -> Optional[str]:
         return None
 
 
-# test connection to MAV2Rest
-def test_mav2rest_connection(sysid: int = 1) -> Dict[str, Any]:
-    """
-    Test connection to MAV2Rest API
-
-    Args:
-        sysid: System ID to use in test message
-
-    Returns:
-        Dictionary with connection test results
-    """
-    try:
-        logger.debug(f"Testing MAV2Rest endpoint: {MAV2REST_ENDPOINT}")
-        response = requests.get(f"{MAV2REST_ENDPOINT}/mavlink", timeout=3)
-        if response.status_code == 200:
-            logger.info(f"MAV2Rest connection successful on: {MAV2REST_ENDPOINT}")
-
-            # Send a test LANDING_TARGET message to verify the connection
-            test_result = send_landing_target_msg(
-                angle_x=0.0,
-                angle_y=0.0,
-                distance=0.0,
-                size_x=0.0,
-                size_y=0.0,
-                target_num=0,
-                sysid=sysid
-            )
-
-            if test_result["success"]:
-                return {
-                    "success": True,
-                    "message": f"MAV2Rest API connection successful, test LANDING_TARGET sent to SysID {sysid}",
-                    "endpoint": MAV2REST_ENDPOINT
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"MAV2Rest connected but test message failed: {test_result['message']}",
-                    "endpoint": MAV2REST_ENDPOINT
-                }
-        else:
-            logger.error(f"MAV2Rest endpoint returned HTTP {response.status_code}")
-            return {
-                "success": False,
-                "message": f"HTTP {response.status_code}",
-                "endpoint": MAV2REST_ENDPOINT
-            }
-    except requests.exceptions.ConnectionError as e:
-        error_msg = f"Connection error: {str(e)}"
-        logger.error(f"MAV2Rest connection failed: {error_msg}")
-        return {
-            "success": False,
-            "message": error_msg,
-            "endpoint": MAV2REST_ENDPOINT
-        }
-    except requests.RequestException as e:
-        error_msg = f"Request error: {str(e)}"
-        logger.error(f"MAV2Rest connection failed: {error_msg}")
-        return {
-            "success": False,
-            "message": error_msg,
-            "endpoint": MAV2REST_ENDPOINT
-        }
-
-
 # send LANDING_TARGET message based on AprilTag information
 def send_landing_target(tag_id: int,
                         tag_center_x: float,
@@ -148,9 +82,9 @@ def send_landing_target(tag_id: int,
                         tag_height_pixels: float,
                         image_width: int,
                         image_height: int,
-                        camera_hfov_deg: float = 62.2,
-                        camera_vfov_deg: float = 48.8,
-                        sysid: int = 1) -> Dict[str, Any]:
+                        camera_hfov_deg: float,
+                        camera_vfov_deg: float,
+                        sysid: int) -> Dict[str, Any]:
     """
     Convert AprilTag detection to LANDING_TARGET MAVLink message and send it
 
@@ -219,8 +153,8 @@ def calculate_angular_offsets(tag_center_x: float,
                               tag_center_y: float,
                               image_width: int,
                               image_height: int,
-                              camera_hfov_deg: float = 62.2,
-                              camera_vfov_deg: float = 48.8) -> Dict[str, float]:
+                              camera_hfov_deg: float,
+                              camera_vfov_deg: float) -> Dict[str, float]:
     """
     Calculate angular offsets from AprilTag detection data
 
@@ -240,6 +174,21 @@ def calculate_angular_offsets(tag_center_x: float,
         - angle_y_deg: Vertical angular offset in degrees
     """
     import math
+
+    # Validate inputs to prevent mathematical errors
+    if image_width <= 0 or image_height <= 0:
+        logger.error(f"Invalid image dimensions: {image_width}x{image_height}")
+        return {
+            "angle_x": 0.0, "angle_y": 0.0, "angle_x_deg": 0.0, "angle_y_deg": 0.0,
+            "normalized_x": 0.0, "normalized_y": 0.0, "pixel_offset_x": 0.0, "pixel_offset_y": 0.0
+        }
+
+    if camera_hfov_deg <= 0 or camera_vfov_deg <= 0:
+        logger.error(f"Invalid FOV values: hfov={camera_hfov_deg}°, vfov={camera_vfov_deg}°")
+        return {
+            "angle_x": 0.0, "angle_y": 0.0, "angle_x_deg": 0.0, "angle_y_deg": 0.0,
+            "normalized_x": 0.0, "normalized_y": 0.0, "pixel_offset_x": 0.0, "pixel_offset_y": 0.0
+        }
 
     # Get image center
     image_center_x = image_width / 2
@@ -275,8 +224,8 @@ def estimate_target_size_angular(tag_width_pixels: float,
                                  tag_height_pixels: float,
                                  image_width: int,
                                  image_height: int,
-                                 camera_hfov_deg: float = 62.2,
-                                 camera_vfov_deg: float = 48.8) -> Dict[str, float]:
+                                 camera_hfov_deg: float,
+                                 camera_vfov_deg: float) -> Dict[str, float]:
     """
     Estimate angular size of the AprilTag target
 
@@ -294,6 +243,15 @@ def estimate_target_size_angular(tag_width_pixels: float,
         - size_y: Vertical angular size in radians
     """
     import math
+
+    # Validate inputs to prevent mathematical errors
+    if image_width <= 0 or image_height <= 0:
+        logger.error(f"Invalid image dimensions: {image_width}x{image_height}")
+        return {"size_x": 0.0, "size_y": 0.0, "size_x_deg": 0.0, "size_y_deg": 0.0}
+
+    if camera_hfov_deg <= 0 or camera_vfov_deg <= 0:
+        logger.error(f"Invalid FOV values: hfov={camera_hfov_deg}°, vfov={camera_vfov_deg}°")
+        return {"size_x": 0.0, "size_y": 0.0, "size_x_deg": 0.0, "size_y_deg": 0.0}
 
     # Convert pixel size to angular size
     pixels_per_degree_h = image_width / camera_hfov_deg
@@ -316,11 +274,11 @@ def estimate_target_size_angular(tag_width_pixels: float,
 # Low level function to send LANDING_TARGET MAVLink message
 def send_landing_target_msg(angle_x: float,
                             angle_y: float,
-                            distance: float = 0.0,
-                            size_x: float = 0.0,
-                            size_y: float = 0.0,
-                            target_num: int = 0,
-                            sysid: int = 1) -> Dict[str, Any]:
+                            distance: float,
+                            size_x: float,
+                            size_y: float,
+                            target_num: int,
+                            sysid: int) -> Dict[str, Any]:
     """
     Send LANDING_TARGET MAVLink message
 

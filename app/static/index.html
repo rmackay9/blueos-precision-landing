@@ -423,7 +423,18 @@
                                         );
 
                                         // Get image dimensions from the resolution string (e.g., "640x480")
-                                        const [width, height] = data.resolution.split('x').map(Number);
+                                        const resolutionParts = data.resolution.split('x');
+                                        if (resolutionParts.length !== 2) {
+                                            progressLog.value += `Warning: Invalid resolution format: ${data.resolution}\n`;
+                                            return;
+                                        }
+
+                                        const [width, height] = resolutionParts.map(Number);
+                                        if (width <= 0 || height <= 0 || isNaN(width) || isNaN(height)) {
+                                            progressLog.value += `Warning: Invalid image dimensions: ${width}x${height}\n`;
+                                            return;
+                                        }
+
                                         const centerX = width / 2;
                                         const centerY = height / 2;
 

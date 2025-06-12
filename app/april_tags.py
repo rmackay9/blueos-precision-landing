@@ -25,7 +25,7 @@ except Exception as e:
     logger.warning(f"AprilTag library not available: {str(e)}. Please install with: pip install apriltag")
 
 
-def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11", target_id: int = -1, include_augmented_image: bool = False) -> Dict[str, Any]:
+def detect_april_tags(image: np.ndarray, tag_family: str, target_id: int, include_augmented_image: bool) -> Dict[str, Any]:
     """
     Detect AprilTags in an image and return the tag with the lowest ID
 
@@ -101,7 +101,13 @@ def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11", target_id
 
             # Normalize diagonal by image diagonal for relative size
             image_diagonal = np.sqrt(image.shape[1]**2 + image.shape[0]**2)
-            relative_size = diagonal / image_diagonal
+
+            # Prevent division by zero
+            if image_diagonal > 0:
+                relative_size = diagonal / image_diagonal
+            else:
+                logger.warning("Image diagonal is zero, setting relative size to 0")
+                relative_size = 0.0
 
             # Store detection data
             detection_info = {
