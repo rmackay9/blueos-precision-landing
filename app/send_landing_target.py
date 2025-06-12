@@ -16,46 +16,48 @@ import urllib.request
 # Get logger
 logger = logging.getLogger("precision-landing")
 
-# Import settings module
-try:
-    from app import settings
-    logger.info("Settings module imported successfully")
-except ImportError as e:
-    logger.warning(f"Settings module not available: {str(e)}")
-    settings = None
-
-# MAV2Rest default endpoint (BlueOS standard)
-# Since container uses host networking, try localhost first
+# MAV2Rest endpoint (fixed for BlueOS Docker environment)
 MAV2REST_ENDPOINT = "http://host.docker.internal:6040"
 
-# MAVLink message constants
-MAV_FRAME_GLOBAL = 0
-MAV_FRAME_LOCAL_NED = 1
-MAV_FRAME_MISSION = 2
-MAV_FRAME_GLOBAL_RELATIVE_ALT = 3
-MAV_FRAME_LOCAL_ENU = 4
-MAV_FRAME_GLOBAL_INT = 5
-MAV_FRAME_GLOBAL_RELATIVE_ALT_INT = 6
-MAV_FRAME_LOCAL_OFFSET_NED = 7
-MAV_FRAME_BODY_NED = 8
-MAV_FRAME_BODY_OFFSET_NED = 9
-MAV_FRAME_GLOBAL_TERRAIN_ALT = 10
-MAV_FRAME_GLOBAL_TERRAIN_ALT_INT = 11
+# MAVLink constants (only the ones we actually use)
 MAV_FRAME_BODY_FRD = 12
-MAV_FRAME_BODY_FLU = 17
-MAV_FRAME_MOCAP_NED = 18
-MAV_FRAME_MOCAP_ENU = 19
-MAV_FRAME_VISION_NED = 20
-MAV_FRAME_VISION_ENU = 21
-
-# LANDING_TARGET position types
-LANDING_TARGET_TYPE_LIGHT_BEACON = 0
-LANDING_TARGET_TYPE_RADIO_BEACON = 1
 LANDING_TARGET_TYPE_VISION_FIDUCIAL = 2
-LANDING_TARGET_TYPE_VISION_OTHER = 3
+
+# LANDING_TARGET message template (based on working BlueOS pattern)
+LANDING_TARGET_TEMPLATE = """{{
+  "header": {{
+    "system_id": 255,
+    "component_id": 0,
+    "sequence": 0
+  }},
+  "message": {{
+    "type": "LANDING_TARGET",
+    "time_usec": {time_usec},
+    "target_num": {target_num},
+    "frame": {{
+      "type": "MAV_FRAME_{frame_name}"
+    }},
+    "angle_x": {angle_x},
+    "angle_y": {angle_y},
+    "distance": {distance},
+    "size_x": {size_x},
+    "size_y": {size_y},
+    "x": {x},
+    "y": {y},
+    "z": {z},
+    "q": [
+      {q0},
+      {q1},
+      {q2},
+      {q3}
+    ],
+    "position_type": {{
+      "type": "LANDING_TARGET_TYPE_{position_type_name}"
+    }}
+  }}
+}}"""
 
 
-# BlueOS helper functions (similar to blueoshelper.py in working DVL example)
 def post_to_mav2rest(url: str, data: str) -> Optional[str]:
     """
     Sends a POST request to MAV2Rest with JSON data
@@ -73,29 +75,23 @@ def post_to_mav2rest(url: str, data: str) -> Optional[str]:
         return None
 
 
-class LandingTargetSender:
+def test_mav2rest_connection() -> Dict[str, Any]:
     """Class to handle sending LANDING_TARGET MAVLink messages"""
 
-    def __init__(self, mav2rest_endpoint: str = MAV2REST_ENDPOINT):
+    def __init__(self, mav2rest_endpoint: str = MAV2REST_ENDPOINT, target_system: int = 1):
         """
         Initialize the landing target sender
 
         Args:
             mav2rest_endpoint: MAV2Rest API endpoint URL
+            target_system: Target system ID for MAVLink messages
         """
         self.mav2rest_endpoint = mav2rest_endpoint
-
-        # Get target system ID from settings
-        self.target_system = 1  # Default target system ID
-        if settings is not None:
-            try:
-                self.target_system = settings.get_mavlink_flight_controller_sysid()
-            except Exception as e:
-                logger.warning(f"Could not get flight controller SysID from settings: {e}")
+        self.target_system = target_system  # Use provided target system ID
 
         self.target_component = 1  # Default target component ID
         self.last_send_time = 0
-        self.min_send_interval = 0.1  # Minimum interval between messages (100ms)
+        self.send_interval_sec = 0.1  # Minimum interval between messages (100ms)
 
         # LANDING_TARGET message template (based on working BlueOS pattern)
         self.landing_target_template = """{{
@@ -224,7 +220,7 @@ class LandingTargetSender:
         """
         # Rate limiting - don't send messages too frequently
         current_time = time.time()
-        if current_time - self.last_send_time < self.min_send_interval:
+        if current_time - self.last_send_time < self.send_interval_sec:
             return {
                 "success": False,
                 "message": "Rate limited - message sent too soon after previous message",
@@ -235,38 +231,11 @@ class LandingTargetSender:
             # Get current time in microseconds since UNIX epoch
             time_usec = int(current_time * 1000000)
 
-            # Map frame integer to frame name
-            frame_names = {
-                MAV_FRAME_GLOBAL: "GLOBAL",
-                MAV_FRAME_LOCAL_NED: "LOCAL_NED",
-                MAV_FRAME_MISSION: "MISSION",
-                MAV_FRAME_GLOBAL_RELATIVE_ALT: "GLOBAL_RELATIVE_ALT",
-                MAV_FRAME_LOCAL_ENU: "LOCAL_ENU",
-                MAV_FRAME_GLOBAL_INT: "GLOBAL_INT",
-                MAV_FRAME_GLOBAL_RELATIVE_ALT_INT: "GLOBAL_RELATIVE_ALT_INT",
-                MAV_FRAME_LOCAL_OFFSET_NED: "LOCAL_OFFSET_NED",
-                MAV_FRAME_BODY_NED: "BODY_NED",
-                MAV_FRAME_BODY_OFFSET_NED: "BODY_OFFSET_NED",
-                MAV_FRAME_GLOBAL_TERRAIN_ALT: "GLOBAL_TERRAIN_ALT",
-                MAV_FRAME_GLOBAL_TERRAIN_ALT_INT: "GLOBAL_TERRAIN_ALT_INT",
-                MAV_FRAME_BODY_FRD: "BODY_FRD",
-                MAV_FRAME_BODY_FLU: "BODY_FLU",
-                MAV_FRAME_MOCAP_NED: "MOCAP_NED",
-                MAV_FRAME_MOCAP_ENU: "MOCAP_ENU",
-                MAV_FRAME_VISION_NED: "VISION_NED",
-                MAV_FRAME_VISION_ENU: "VISION_ENU"
-            }
+            # Map frame integer to frame name (simplified - we only use BODY_FRD)
+            frame_name = "BODY_FRD" if frame == MAV_FRAME_BODY_FRD else "BODY_FRD"
 
-            # Map position type integer to type name
-            position_type_names = {
-                LANDING_TARGET_TYPE_LIGHT_BEACON: "LIGHT_BEACON",
-                LANDING_TARGET_TYPE_RADIO_BEACON: "RADIO_BEACON",
-                LANDING_TARGET_TYPE_VISION_FIDUCIAL: "VISION_FIDUCIAL",
-                LANDING_TARGET_TYPE_VISION_OTHER: "VISION_OTHER"
-            }
-
-            frame_name = frame_names.get(frame, "BODY_FRD")
-            position_type_name = position_type_names.get(position_type, "VISION_FIDUCIAL")
+            # Map position type integer to type name (simplified - we only use VISION_FIDUCIAL)
+            position_type_name = "VISION_FIDUCIAL" if position_type == LANDING_TARGET_TYPE_VISION_FIDUCIAL else "VISION_FIDUCIAL"
 
             # Format the LANDING_TARGET message using BlueOS-style template
             landing_target_data = self.landing_target_template.format(
@@ -321,28 +290,6 @@ class LandingTargetSender:
                 "message": f"Unexpected error: {str(e)}",
                 "unexpected_error": True
             }
-
-    def update_target_system_id(self, target_system: int):
-        """
-        Update the target system ID
-
-        Args:
-            target_system: New target system ID
-        """
-        self.target_system = target_system
-        logger.info(f"Updated target system ID to: {target_system}")
-
-    def refresh_settings(self):
-        """
-        Refresh settings from the settings module
-        """
-        if settings is not None:
-            try:
-                new_target_system = settings.get_mavlink_flight_controller_sysid()
-                if new_target_system != self.target_system:
-                    self.update_target_system_id(new_target_system)
-            except Exception as e:
-                logger.warning(f"Could not refresh flight controller SysID from settings: {e}")
 
 
 def calculate_angular_offsets(detection: Dict[str, Any],
@@ -509,35 +456,30 @@ def send_apriltag_as_landing_target(detection: Dict[str, Any],
         }
 
 
-# Module-level sender instance (singleton pattern)
-_global_sender = None
-
-
-def get_landing_target_sender(mav2rest_endpoint: str = MAV2REST_ENDPOINT) -> LandingTargetSender:
+def get_landing_target_sender(mav2rest_endpoint: str = MAV2REST_ENDPOINT, target_system: int = 1) -> LandingTargetSender:
     """
-    Get the global LandingTargetSender instance (singleton pattern)
+    Create a new LandingTargetSender instance
 
     Args:
         mav2rest_endpoint: MAV2Rest API endpoint URL
+        target_system: Target system ID for MAVLink messages
 
     Returns:
         LandingTargetSender instance
     """
-    global _global_sender
-    if _global_sender is None or _global_sender.mav2rest_endpoint != mav2rest_endpoint:
-        _global_sender = LandingTargetSender(mav2rest_endpoint)
-    return _global_sender
+    return LandingTargetSender(mav2rest_endpoint, target_system)
 
 
-def test_mav2rest_connection(mav2rest_endpoint: str = MAV2REST_ENDPOINT) -> Dict[str, Any]:
+def test_mav2rest_connection(mav2rest_endpoint: str = MAV2REST_ENDPOINT, target_system: int = 1) -> Dict[str, Any]:
     """
     Test connection to MAV2Rest API
 
     Args:
         mav2rest_endpoint: MAV2Rest API endpoint URL
+        target_system: Target system ID for MAVLink messages
 
     Returns:
         Dictionary with connection test results
     """
-    sender = get_landing_target_sender(mav2rest_endpoint)
+    sender = get_landing_target_sender(mav2rest_endpoint, target_system)
     return sender.test_connection()

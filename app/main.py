@@ -78,11 +78,11 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
         camera_horizontal_fov = settings.get_camera_horizontal_fov(camera_type)
         logger.info(f"Using horizontal FOV: {camera_horizontal_fov}° for camera type: {camera_type}")
 
-        # Initialize landing target sender
-        sender = send_landing_target.get_landing_target_sender()
+        # Get MAVLink target system ID from settings
+        target_system_id = settings.get_mavlink_flight_controller_sysid()
 
-        # Refresh sender settings to get latest target system ID
-        sender.refresh_settings()
+        # Initialize landing target sender
+        sender = send_landing_target.get_landing_target_sender(target_system=target_system_id)
 
         # Test MAV2Rest connection
         mav_test = sender.test_connection()
@@ -397,7 +397,8 @@ async def test_mavlink_connection() -> Dict[str, Any]:
     logger.info("Testing MAV2Rest MAVLink connection")
 
     try:
-        result = send_landing_target.test_mav2rest_connection()
+        target_system_id = settings.get_mavlink_flight_controller_sysid()
+        result = send_landing_target.test_mav2rest_connection(target_system=target_system_id)
         if result["success"]:
             logger.info("MAV2Rest connection test successful")
         else:
