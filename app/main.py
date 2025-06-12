@@ -131,7 +131,14 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
 
                     # Send LANDING_TARGET message
                     send_result = send_landing_target.send_apriltag_as_landing_target(
-                        detected_tag, width, height, camera_horizontal_fov
+                        detected_tag["tag_id"],
+                        detected_tag["center_x"],
+                        detected_tag["center_y"],
+                        detected_tag["width"],
+                        detected_tag["height"],
+                        width,
+                        height,
+                        camera_horizontal_fov
                     )
 
                     if send_result["success"]:

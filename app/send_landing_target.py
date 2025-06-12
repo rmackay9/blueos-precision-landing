@@ -19,10 +19,6 @@ logger = logging.getLogger("precision-landing")
 # MAV2Rest endpoint (fixed for BlueOS Docker environment)
 MAV2REST_ENDPOINT = "http://host.docker.internal:6040"
 
-# MAVLink constants (only the ones we actually use)
-MAV_FRAME_LOCAL_FRD = 20
-LANDING_TARGET_TYPE_VISION_FIDUCIAL = 2
-
 # LANDING_TARGET message template (based on working BlueOS pattern)
 LANDING_TARGET_TEMPLATE = """{{
   "header": {{
@@ -58,6 +54,7 @@ LANDING_TARGET_TEMPLATE = """{{
 }}"""
 
 
+# send mavlink message using MAV2Rest
 def post_to_mav2rest(url: str, data: str) -> Optional[str]:
     """
     Sends a POST request to MAV2Rest with JSON data
@@ -75,6 +72,7 @@ def post_to_mav2rest(url: str, data: str) -> Optional[str]:
         return None
 
 
+# test connection to MAV2Rest
 def test_mav2rest_connection() -> Dict[str, Any]:
     """
     Test connection to MAV2Rest API
@@ -117,6 +115,7 @@ def test_mav2rest_connection() -> Dict[str, Any]:
         }
 
 
+# Send LANDING_TARGET MAVLink message
 def send_landing_target(angle_x: float,
                         angle_y: float,
                         distance: float = 0.0,
@@ -142,7 +141,7 @@ def send_landing_target(angle_x: float,
         current_time = time.time()
         time_usec = int(current_time * 1000000)
 
-        # Map frame integer to frame name (always use MAV_FRAME_LOCAL_FRD)
+        # Always use MAV_FRAME_LOCAL_FRD
         frame_name = "LOCAL_FRD"
 
         # Map position type integer to type name (always use VISION_FIDUCIAL)
@@ -202,7 +201,9 @@ def send_landing_target(angle_x: float,
         }
 
 
-def calculate_angular_offsets(detection: Dict[str, Any],
+# calculate angular offsets required for LANDING_TARGET message
+def calculate_angular_offsets(tag_center_x: float,
+                              tag_center_y: float,
                               image_width: int,
                               image_height: int,
                               camera_hfov_deg: float = 62.2,
@@ -211,7 +212,8 @@ def calculate_angular_offsets(detection: Dict[str, Any],
     Calculate angular offsets from AprilTag detection data
 
     Args:
-        detection: AprilTag detection dictionary
+        tag_center_x: X coordinate of tag center in pixels
+        tag_center_y: Y coordinate of tag center in pixels
         image_width: Width of the image in pixels
         image_height: Height of the image in pixels
         camera_hfov_deg: Horizontal field of view in degrees
@@ -229,10 +231,6 @@ def calculate_angular_offsets(detection: Dict[str, Any],
     # Get image center
     image_center_x = image_width / 2
     image_center_y = image_height / 2
-
-    # Get tag center
-    tag_center_x = detection["center_x"]
-    tag_center_y = detection["center_y"]
 
     # Calculate pixel offsets from center
     pixel_offset_x = tag_center_x - image_center_x
@@ -259,7 +257,9 @@ def calculate_angular_offsets(detection: Dict[str, Any],
     }
 
 
-def estimate_target_size_angular(detection: Dict[str, Any],
+# Estimate angular size of the AprilTag
+def estimate_target_size_angular(tag_width_pixels: float,
+                                 tag_height_pixels: float,
                                  image_width: int,
                                  image_height: int,
                                  camera_hfov_deg: float = 62.2,
@@ -268,7 +268,8 @@ def estimate_target_size_angular(detection: Dict[str, Any],
     Estimate angular size of the AprilTag target
 
     Args:
-        detection: AprilTag detection dictionary
+        tag_width_pixels: Width of the tag in pixels
+        tag_height_pixels: Height of the tag in pixels
         image_width: Width of the image in pixels
         image_height: Height of the image in pixels
         camera_hfov_deg: Horizontal field of view in degrees
@@ -280,10 +281,6 @@ def estimate_target_size_angular(detection: Dict[str, Any],
         - size_y: Vertical angular size in radians
     """
     import math
-
-    # Get tag dimensions in pixels
-    tag_width_pixels = detection["width"]
-    tag_height_pixels = detection["height"]
 
     # Convert pixel size to angular size
     pixels_per_degree_h = image_width / camera_hfov_deg
@@ -303,7 +300,12 @@ def estimate_target_size_angular(detection: Dict[str, Any],
     }
 
 
-def send_apriltag_as_landing_target(detection: Dict[str, Any],
+# send LANDING_TARGET message based on AprilTag information
+def send_apriltag_as_landing_target(tag_id: int,
+                                    tag_center_x: float,
+                                    tag_center_y: float,
+                                    tag_width_pixels: float,
+                                    tag_height_pixels: float,
                                     image_width: int,
                                     image_height: int,
                                     camera_hfov_deg: float = 62.2,
@@ -312,7 +314,11 @@ def send_apriltag_as_landing_target(detection: Dict[str, Any],
     Convert AprilTag detection to LANDING_TARGET MAVLink message and send it
 
     Args:
-        detection: AprilTag detection dictionary
+        tag_id: AprilTag ID number
+        tag_center_x: X coordinate of tag center in pixels
+        tag_center_y: Y coordinate of tag center in pixels
+        tag_width_pixels: Width of the tag in pixels
+        tag_height_pixels: Height of the tag in pixels
         image_width: Width of the image in pixels
         image_height: Height of the image in pixels
         camera_hfov_deg: Horizontal field of view in degrees
@@ -323,11 +329,13 @@ def send_apriltag_as_landing_target(detection: Dict[str, Any],
     """
     try:
         # Calculate angular offsets
-        angles = calculate_angular_offsets(detection, image_width, image_height,
+        angles = calculate_angular_offsets(tag_center_x, tag_center_y,
+                                           image_width, image_height,
                                            camera_hfov_deg, camera_vfov_deg)
 
         # Estimate angular size
-        size = estimate_target_size_angular(detection, image_width, image_height,
+        size = estimate_target_size_angular(tag_width_pixels, tag_height_pixels,
+                                            image_width, image_height,
                                             camera_hfov_deg, camera_vfov_deg)
 
         # Send LANDING_TARGET message directly (no sender instance needed)
@@ -337,16 +345,16 @@ def send_apriltag_as_landing_target(detection: Dict[str, Any],
             distance=0.0,  # Distance unknown from vision alone
             size_x=size["size_x"],
             size_y=size["size_y"],
-            target_num=detection["tag_id"]  # Use AprilTag ID as target number
+            target_num=tag_id  # Use AprilTag ID as target number
         )
 
         if result["success"]:
-            logger.info(f"Sent LANDING_TARGET for AprilTag ID {detection['tag_id']}: "
+            logger.info(f"Sent LANDING_TARGET for AprilTag ID {tag_id}: "
                         f"angle_x={angles['angle_x_deg']:.2f}°, angle_y={angles['angle_y_deg']:.2f}°")
 
         # Add angle and size information to result
         result.update({
-            "tag_id": detection["tag_id"],
+            "tag_id": tag_id,
             "angles": angles,
             "size": size
         })
