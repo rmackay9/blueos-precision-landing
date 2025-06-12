@@ -45,7 +45,7 @@ DEFAULT_SETTINGS = {
         'target_id': -1
     },
     'mavlink': {
-        'flight_controller_sysid': 1
+        'sysid': 1
     }
 }
 
@@ -316,25 +316,25 @@ def update_apriltag_settings(family=None, target_id=None):
         return False
 
 
-# get MAVLink flight controller sysid
-def get_mavlink_flight_controller_sysid():
+# get MAVLink sysid
+def get_mavlink_sysid():
     """
-    Get the MAVLink flight controller system ID setting
+    Get the MAVLink system ID setting
 
     Returns:
-        int: The flight controller system ID (default: 1)
+        int: The system ID (default: 1)
     """
     settings = get_settings()
-    return settings.get('mavlink', {}).get('flight_controller_sysid', DEFAULT_SETTINGS['mavlink']['flight_controller_sysid'])
+    return settings.get('mavlink', {}).get('sysid', DEFAULT_SETTINGS['mavlink']['sysid'])
 
 
-# update MAVLink flight controller sysid
-def update_mavlink_flight_controller_sysid(flight_controller_sysid=None):
+# update MAVLink sysid
+def update_mavlink_sysid(sysid=None):
     """
-    Update MAVLink flight controller sysid
+    Update MAVLink sysid
 
     Args:
-        flight_controller_sysid (int, optional): The flight controller system ID
+        sysid (int, optional): The system ID
 
     Returns:
         bool: True if successful, False otherwise
@@ -346,11 +346,11 @@ def update_mavlink_flight_controller_sysid(flight_controller_sysid=None):
         if 'mavlink' not in settings:
             settings['mavlink'] = {}
 
-        if flight_controller_sysid is not None:
-            settings['mavlink']['flight_controller_sysid'] = flight_controller_sysid
+        if sysid is not None:
+            settings['mavlink']['sysid'] = sysid
 
         save_settings(settings)
-        logger.debug(f"Updated MAVLink settings - flight_controller_sysid: {flight_controller_sysid}")
+        logger.debug(f"Updated MAVLink settings - sysid: {sysid}")
         return True
     except Exception as e:
         logger.error(f"Error updating MAVLink settings: {e}")

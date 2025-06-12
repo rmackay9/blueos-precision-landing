@@ -79,10 +79,10 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
         logger.info(f"Using horizontal FOV: {camera_horizontal_fov}° for camera type: {camera_type}")
 
         # Get MAVLink target system ID from settings
-        target_system_id = settings.get_mavlink_flight_controller_sysid()
+        target_system_id = settings.get_mavlink_sysid()
 
         # Test MAV2Rest connection
-        mav_test = send_landing_target.test_mav2rest_connection()
+        mav_test = send_landing_target.test_mav2rest_connection(target_system_id)
         if not mav_test["success"]:
             logger.error(f"MAV2Rest connection failed: {mav_test['message']}")
             precision_landing_running = False
@@ -138,7 +138,9 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
                         detected_tag["height"],
                         width,
                         height,
-                        camera_horizontal_fov
+                        camera_horizontal_fov,
+                        camera_vfov_deg=48.8,  # Default vertical FOV
+                        sysid=target_system_id
                     )
 
                     if send_result["success"]:
@@ -192,11 +194,13 @@ async def save_precision_landing_settings(
     fov: float = None,
     apriltag_family: str = None,
     tag_id: int = None,
-    flight_controller_sysid: int = None
+    flight_controller_sysid: int = None  # Keep this for HTML compatibility
 ) -> Dict[str, Any]:
     """Save camera settings and other precision landing settings to persistent storage (using query parameters)"""
+    # Map flight_controller_sysid to sysid for internal use
+    sysid = flight_controller_sysid
     logger.info(f"Saving precision landing settings: type={type}, rtsp_url={rtsp}, fov={fov}, "
-                f"apriltag_family={apriltag_family}, tag_id={tag_id}, flight_controller_sysid={flight_controller_sysid}")
+                f"apriltag_family={apriltag_family}, tag_id={tag_id}, sysid={sysid}")
 
     # Save camera settings
     camera_success = settings.update_camera_settings(type, rtsp, fov)
@@ -208,8 +212,8 @@ async def save_precision_landing_settings(
 
     # Save MAVLink settings
     mavlink_success = True
-    if flight_controller_sysid is not None:
-        mavlink_success = settings.update_mavlink_flight_controller_sysid(flight_controller_sysid)
+    if sysid is not None:
+        mavlink_success = settings.update_mavlink_sysid(sysid)
 
     if camera_success and apriltag_success and mavlink_success:
         return {"success": True, "message": f"Settings saved for {type}"}
@@ -245,7 +249,7 @@ async def get_precision_landing_settings() -> Dict[str, Any]:
 
         # Get MAVLink settings
         mavlink_settings = {
-            "flight_controller_sysid": settings.get_mavlink_flight_controller_sysid()
+            "flight_controller_sysid": settings.get_mavlink_sysid()
         }
 
         return {
@@ -398,11 +402,9 @@ async def get_precision_landing_status() -> Dict[str, Any]:
 @app.post("/precision-landing/test-mavlink")
 async def test_mavlink_connection() -> Dict[str, Any]:
     """Test MAV2Rest MAVLink connection"""
-    logger.info("Testing MAV2Rest MAVLink connection")
-
     try:
-        target_system_id = settings.get_mavlink_flight_controller_sysid()
-        result = send_landing_target.test_mav2rest_connection()
+        target_system_id = settings.get_mavlink_sysid()
+        result = send_landing_target.test_mav2rest_connection(target_system_id)
         if result["success"]:
             logger.info("MAV2Rest connection test successful")
         else:

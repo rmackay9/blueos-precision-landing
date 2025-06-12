@@ -19,11 +19,14 @@ logger = logging.getLogger("precision-landing")
 # MAV2Rest endpoint (fixed for BlueOS Docker environment)
 MAV2REST_ENDPOINT = "http://host.docker.internal:6040"
 
+# MAVLink component ID constants
+MAV_COMP_ID_ONBOARD_COMPUTER = 191  # Component ID for onboard computer systems
+
 # LANDING_TARGET message template (based on working BlueOS pattern)
 LANDING_TARGET_TEMPLATE = """{{
   "header": {{
-    "system_id": 255,
-    "component_id": 0,
+    "system_id": {sysid},
+    "component_id": {component_id},
     "sequence": 0
   }},
   "message": {{
@@ -73,9 +76,12 @@ def post_to_mav2rest(url: str, data: str) -> Optional[str]:
 
 
 # test connection to MAV2Rest
-def test_mav2rest_connection() -> Dict[str, Any]:
+def test_mav2rest_connection(sysid: int = 1) -> Dict[str, Any]:
     """
     Test connection to MAV2Rest API
+
+    Args:
+        sysid: System ID to use in test message
 
     Returns:
         Dictionary with connection test results
@@ -85,11 +91,30 @@ def test_mav2rest_connection() -> Dict[str, Any]:
         response = requests.get(f"{MAV2REST_ENDPOINT}/mavlink", timeout=3)
         if response.status_code == 200:
             logger.info(f"MAV2Rest connection successful on: {MAV2REST_ENDPOINT}")
-            return {
-                "success": True,
-                "message": "MAV2Rest API connection successful",
-                "endpoint": MAV2REST_ENDPOINT
-            }
+
+            # Send a test LANDING_TARGET message to verify the connection
+            test_result = send_landing_target(
+                angle_x=0.0,
+                angle_y=0.0,
+                distance=0.0,
+                size_x=0.0,
+                size_y=0.0,
+                target_num=0,
+                sysid=sysid
+            )
+
+            if test_result["success"]:
+                return {
+                    "success": True,
+                    "message": f"MAV2Rest API connection successful, test LANDING_TARGET sent to SysID {sysid}",
+                    "endpoint": MAV2REST_ENDPOINT
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"MAV2Rest connected but test message failed: {test_result['message']}",
+                    "endpoint": MAV2REST_ENDPOINT
+                }
         else:
             logger.error(f"MAV2Rest endpoint returned HTTP {response.status_code}")
             return {
@@ -121,7 +146,8 @@ def send_landing_target(angle_x: float,
                         distance: float = 0.0,
                         size_x: float = 0.0,
                         size_y: float = 0.0,
-                        target_num: int = 0) -> Dict[str, Any]:
+                        target_num: int = 0,
+                        sysid: int = 1) -> Dict[str, Any]:
     """
     Send LANDING_TARGET MAVLink message
 
@@ -132,6 +158,7 @@ def send_landing_target(angle_x: float,
         size_x: Size of target along x-axis in radians (0 if unknown)
         size_y: Size of target along y-axis in radians (0 if unknown)
         target_num: Target number (0 for standard landing target)
+        sysid: System ID to send message to
 
     Returns:
         Dictionary with send results
@@ -149,6 +176,8 @@ def send_landing_target(angle_x: float,
 
         # Format the LANDING_TARGET message using BlueOS-style template
         landing_target_data = LANDING_TARGET_TEMPLATE.format(
+            sysid=sysid,
+            component_id=MAV_COMP_ID_ONBOARD_COMPUTER,
             time_usec=time_usec,
             target_num=target_num,
             frame_name=frame_name,
@@ -170,18 +199,19 @@ def send_landing_target(angle_x: float,
         # Send message via MAV2Rest using BlueOS-style post
         url = f"{MAV2REST_ENDPOINT}/mavlink"
 
-        logger.debug(f"Sending LANDING_TARGET: angle_x={angle_x:.4f}, angle_y={angle_y:.4f}, distance={distance:.2f}")
+        logger.debug(f"Sending LANDING_TARGET with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}: angle_x={angle_x:.4f}, angle_y={angle_y:.4f}, distance={distance:.2f}")
 
         response = post_to_mav2rest(url, landing_target_data)
 
         if response is not None:
-            logger.debug("LANDING_TARGET message sent successfully")
+            logger.debug(f"LANDING_TARGET message sent successfully with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}")
             return {
                 "success": True,
-                "message": "LANDING_TARGET message sent successfully",
+                "message": f"LANDING_TARGET message sent successfully with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}",
                 "time_usec": time_usec,
                 "angle_x": angle_x,
                 "angle_y": angle_y,
+                "sysid": sysid,
                 "response": response
             }
         else:
@@ -309,7 +339,8 @@ def send_apriltag_as_landing_target(tag_id: int,
                                     image_width: int,
                                     image_height: int,
                                     camera_hfov_deg: float = 62.2,
-                                    camera_vfov_deg: float = 48.8) -> Dict[str, Any]:
+                                    camera_vfov_deg: float = 48.8,
+                                    sysid: int = 1) -> Dict[str, Any]:
     """
     Convert AprilTag detection to LANDING_TARGET MAVLink message and send it
 
@@ -323,6 +354,7 @@ def send_apriltag_as_landing_target(tag_id: int,
         image_height: Height of the image in pixels
         camera_hfov_deg: Horizontal field of view in degrees
         camera_vfov_deg: Vertical field of view in degrees
+        sysid: System ID to send message to
 
     Returns:
         Dictionary with conversion and send results
@@ -345,18 +377,20 @@ def send_apriltag_as_landing_target(tag_id: int,
             distance=0.0,  # Distance unknown from vision alone
             size_x=size["size_x"],
             size_y=size["size_y"],
-            target_num=tag_id  # Use AprilTag ID as target number
+            target_num=tag_id,  # Use AprilTag ID as target number
+            sysid=sysid
         )
 
         if result["success"]:
-            logger.info(f"Sent LANDING_TARGET for AprilTag ID {tag_id}: "
+            logger.info(f"Sent LANDING_TARGET for AprilTag ID {tag_id} with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}: "
                         f"angle_x={angles['angle_x_deg']:.2f}°, angle_y={angles['angle_y_deg']:.2f}°")
 
         # Add angle and size information to result
         result.update({
             "tag_id": tag_id,
             "angles": angles,
-            "size": size
+            "size": size,
+            "sysid": sysid
         })
 
         return result
