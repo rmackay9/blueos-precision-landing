@@ -20,7 +20,7 @@ logger = logging.getLogger("precision-landing")
 MAV2REST_ENDPOINT = "http://host.docker.internal:6040"
 
 # MAVLink constants (only the ones we actually use)
-MAV_FRAME_BODY_FRD = 12
+MAV_FRAME_LOCAL_FRD = 20
 LANDING_TARGET_TYPE_VISION_FIDUCIAL = 2
 
 # LANDING_TARGET message template (based on working BlueOS pattern)
@@ -76,220 +76,130 @@ def post_to_mav2rest(url: str, data: str) -> Optional[str]:
 
 
 def test_mav2rest_connection() -> Dict[str, Any]:
-    """Class to handle sending LANDING_TARGET MAVLink messages"""
+    """
+    Test connection to MAV2Rest API
 
-    def __init__(self, mav2rest_endpoint: str = MAV2REST_ENDPOINT, target_system: int = 1):
-        """
-        Initialize the landing target sender
-
-        Args:
-            mav2rest_endpoint: MAV2Rest API endpoint URL
-            target_system: Target system ID for MAVLink messages
-        """
-        self.mav2rest_endpoint = mav2rest_endpoint
-        self.target_system = target_system  # Use provided target system ID
-
-        self.target_component = 1  # Default target component ID
-        self.last_send_time = 0
-        self.send_interval_sec = 0.1  # Minimum interval between messages (100ms)
-
-        # LANDING_TARGET message template (based on working BlueOS pattern)
-        self.landing_target_template = """{{
-  "header": {{
-    "system_id": 255,
-    "component_id": 0,
-    "sequence": 0
-  }},
-  "message": {{
-    "type": "LANDING_TARGET",
-    "time_usec": {time_usec},
-    "target_num": {target_num},
-    "frame": {{
-      "type": "MAV_FRAME_{frame_name}"
-    }},
-    "angle_x": {angle_x},
-    "angle_y": {angle_y},
-    "distance": {distance},
-    "size_x": {size_x},
-    "size_y": {size_y},
-    "x": {x},
-    "y": {y},
-    "z": {z},
-    "q": [
-      {q0},
-      {q1},
-      {q2},
-      {q3}
-    ],
-    "position_type": {{
-      "type": "LANDING_TARGET_TYPE_{position_type_name}"
-    }}
-  }}
-}}"""
-
-        logger.info(f"LandingTargetSender initialized with endpoint: {mav2rest_endpoint}, target_system: {self.target_system}")
-
-    def test_connection(self) -> Dict[str, Any]:
-        """
-        Test connection to MAV2Rest API
-
-        Returns:
-            Dictionary with connection test results
-        """
-        # List of common BlueOS MAV2Rest endpoints to try
-        # Since container uses host networking, try localhost first
-        endpoints_to_try = [
-            "http://localhost:6040",
-            "http://127.0.0.1:6040",
-            "http://localhost:6041",  # Alternative port
-            "http://127.0.0.1:6041",
-            self.mav2rest_endpoint,
-            "http://host.docker.internal:6040",
-            "http://localhost/mavlink2rest",
-            "http://127.0.0.1/mavlink2rest",
-            "http://host.docker.internal/mavlink2rest"
-        ]
-
-        # Remove duplicates while preserving order
-        unique_endpoints = []
-        for endpoint in endpoints_to_try:
-            if endpoint not in unique_endpoints:
-                unique_endpoints.append(endpoint)
-
-        last_error = None
-
-        for endpoint in unique_endpoints:
-            try:
-                logger.debug(f"Testing MAV2Rest endpoint: {endpoint}")
-                response = requests.get(f"{endpoint}/mavlink", timeout=3)
-                if response.status_code == 200:
-                    logger.info(f"MAV2Rest connection successful on: {endpoint}")
-                    # Update the endpoint if we found a working one different from default
-                    if endpoint != self.mav2rest_endpoint:
-                        logger.info(f"Updating MAV2Rest endpoint from {self.mav2rest_endpoint} to {endpoint}")
-                        self.mav2rest_endpoint = endpoint
-                    return {
-                        "success": True,
-                        "message": "MAV2Rest API connection successful",
-                        "endpoint": endpoint,
-                        "tested_endpoints": unique_endpoints
-                    }
-                else:
-                    last_error = f"HTTP {response.status_code}"
-                    logger.debug(f"MAV2Rest endpoint {endpoint} returned HTTP {response.status_code}")
-            except requests.exceptions.ConnectionError as e:
-                last_error = f"Connection error: {str(e)}"
-                logger.debug(f"MAV2Rest endpoint {endpoint} failed: {last_error}")
-            except requests.RequestException as e:
-                last_error = f"Request error: {str(e)}"
-                logger.debug(f"MAV2Rest endpoint {endpoint} failed: {last_error}")
-
-        # All endpoints failed
-        logger.error(f"All MAV2Rest endpoints failed. Last error: {last_error}")
+    Returns:
+        Dictionary with connection test results
+    """
+    try:
+        logger.debug(f"Testing MAV2Rest endpoint: {MAV2REST_ENDPOINT}")
+        response = requests.get(f"{MAV2REST_ENDPOINT}/mavlink", timeout=3)
+        if response.status_code == 200:
+            logger.info(f"MAV2Rest connection successful on: {MAV2REST_ENDPOINT}")
+            return {
+                "success": True,
+                "message": "MAV2Rest API connection successful",
+                "endpoint": MAV2REST_ENDPOINT
+            }
+        else:
+            logger.error(f"MAV2Rest endpoint returned HTTP {response.status_code}")
+            return {
+                "success": False,
+                "message": f"HTTP {response.status_code}",
+                "endpoint": MAV2REST_ENDPOINT
+            }
+    except requests.exceptions.ConnectionError as e:
+        error_msg = f"Connection error: {str(e)}"
+        logger.error(f"MAV2Rest connection failed: {error_msg}")
         return {
             "success": False,
-            "message": f"Failed to connect to any MAV2Rest endpoint. Last error: {last_error}",
-            "tested_endpoints": unique_endpoints,
-            "last_error": last_error
+            "message": error_msg,
+            "endpoint": MAV2REST_ENDPOINT
+        }
+    except requests.RequestException as e:
+        error_msg = f"Request error: {str(e)}"
+        logger.error(f"MAV2Rest connection failed: {error_msg}")
+        return {
+            "success": False,
+            "message": error_msg,
+            "endpoint": MAV2REST_ENDPOINT
         }
 
-    def send_landing_target(self,
-                            angle_x: float,
-                            angle_y: float,
-                            distance: float = 0.0,
-                            size_x: float = 0.0,
-                            size_y: float = 0.0,
-                            target_num: int = 0,
-                            frame: int = MAV_FRAME_BODY_FRD,
-                            position_type: int = LANDING_TARGET_TYPE_VISION_FIDUCIAL) -> Dict[str, Any]:
-        """
-        Send LANDING_TARGET MAVLink message
 
-        Args:
-            angle_x: X-axis angular offset in radians
-            angle_y: Y-axis angular offset in radians
-            distance: Distance to target in meters (0 if unknown)
-            size_x: Size of target along x-axis in radians (0 if unknown)
-            size_y: Size of target along y-axis in radians (0 if unknown)
-            target_num: Target number (0 for standard landing target)
-            frame: Coordinate frame of reference
-            position_type: Type of landing target
+def send_landing_target(angle_x: float,
+                        angle_y: float,
+                        distance: float = 0.0,
+                        size_x: float = 0.0,
+                        size_y: float = 0.0,
+                        target_num: int = 0) -> Dict[str, Any]:
+    """
+    Send LANDING_TARGET MAVLink message
 
-        Returns:
-            Dictionary with send results
-        """
-        # Rate limiting - don't send messages too frequently
+    Args:
+        angle_x: X-axis angular offset in radians
+        angle_y: Y-axis angular offset in radians
+        distance: Distance to target in meters (0 if unknown)
+        size_x: Size of target along x-axis in radians (0 if unknown)
+        size_y: Size of target along y-axis in radians (0 if unknown)
+        target_num: Target number (0 for standard landing target)
+
+    Returns:
+        Dictionary with send results
+    """
+    try:
+        # Get current time in microseconds since UNIX epoch
         current_time = time.time()
-        if current_time - self.last_send_time < self.send_interval_sec:
+        time_usec = int(current_time * 1000000)
+
+        # Map frame integer to frame name (always use MAV_FRAME_LOCAL_FRD)
+        frame_name = "LOCAL_FRD"
+
+        # Map position type integer to type name (always use VISION_FIDUCIAL)
+        position_type_name = "VISION_FIDUCIAL"
+
+        # Format the LANDING_TARGET message using BlueOS-style template
+        landing_target_data = LANDING_TARGET_TEMPLATE.format(
+            time_usec=time_usec,
+            target_num=target_num,
+            frame_name=frame_name,
+            angle_x=angle_x,
+            angle_y=angle_y,
+            distance=distance,
+            size_x=size_x,
+            size_y=size_y,
+            x=0.0,  # X Position of the landing target in MAV_FRAME (not used for angular)
+            y=0.0,  # Y Position of the landing target in MAV_FRAME (not used for angular)
+            z=0.0,  # Z Position of the landing target in MAV_FRAME (not used for angular)
+            q0=1.0,  # Quaternion of landing target orientation (not used)
+            q1=0.0,
+            q2=0.0,
+            q3=0.0,
+            position_type_name=position_type_name
+        )
+
+        # Send message via MAV2Rest using BlueOS-style post
+        url = f"{MAV2REST_ENDPOINT}/mavlink"
+
+        logger.debug(f"Sending LANDING_TARGET: angle_x={angle_x:.4f}, angle_y={angle_y:.4f}, distance={distance:.2f}")
+
+        response = post_to_mav2rest(url, landing_target_data)
+
+        if response is not None:
+            logger.debug("LANDING_TARGET message sent successfully")
+            return {
+                "success": True,
+                "message": "LANDING_TARGET message sent successfully",
+                "time_usec": time_usec,
+                "angle_x": angle_x,
+                "angle_y": angle_y,
+                "response": response
+            }
+        else:
+            logger.warning(f"Failed to send LANDING_TARGET: No response from MAV2Rest")
             return {
                 "success": False,
-                "message": "Rate limited - message sent too soon after previous message",
-                "rate_limited": True
+                "message": "MAV2Rest returned no response",
+                "network_error": True
             }
 
-        try:
-            # Get current time in microseconds since UNIX epoch
-            time_usec = int(current_time * 1000000)
-
-            # Map frame integer to frame name (simplified - we only use BODY_FRD)
-            frame_name = "BODY_FRD" if frame == MAV_FRAME_BODY_FRD else "BODY_FRD"
-
-            # Map position type integer to type name (simplified - we only use VISION_FIDUCIAL)
-            position_type_name = "VISION_FIDUCIAL" if position_type == LANDING_TARGET_TYPE_VISION_FIDUCIAL else "VISION_FIDUCIAL"
-
-            # Format the LANDING_TARGET message using BlueOS-style template
-            landing_target_data = self.landing_target_template.format(
-                time_usec=time_usec,
-                target_num=target_num,
-                frame_name=frame_name,
-                angle_x=angle_x,
-                angle_y=angle_y,
-                distance=distance,
-                size_x=size_x,
-                size_y=size_y,
-                x=0.0,  # X Position of the landing target in MAV_FRAME (not used for angular)
-                y=0.0,  # Y Position of the landing target in MAV_FRAME (not used for angular)
-                z=0.0,  # Z Position of the landing target in MAV_FRAME (not used for angular)
-                q0=1.0,  # Quaternion of landing target orientation (not used)
-                q1=0.0,
-                q2=0.0,
-                q3=0.0,
-                position_type_name=position_type_name
-            )
-
-            # Send message via MAV2Rest using BlueOS-style post
-            url = f"{self.mav2rest_endpoint}/mavlink"
-
-            logger.debug(f"Sending LANDING_TARGET: angle_x={angle_x:.4f}, angle_y={angle_y:.4f}, distance={distance:.2f}")
-
-            response = post_to_mav2rest(url, landing_target_data)
-
-            if response is not None:
-                self.last_send_time = current_time
-                logger.debug("LANDING_TARGET message sent successfully")
-                return {
-                    "success": True,
-                    "message": "LANDING_TARGET message sent successfully",
-                    "time_usec": time_usec,
-                    "angle_x": angle_x,
-                    "angle_y": angle_y,
-                    "response": response
-                }
-            else:
-                logger.warning(f"Failed to send LANDING_TARGET: No response from MAV2Rest")
-                return {
-                    "success": False,
-                    "message": "MAV2Rest returned no response",
-                    "network_error": True
-                }
-
-        except Exception as e:
-            logger.error(f"Unexpected error sending LANDING_TARGET: {str(e)}")
-            return {
-                "success": False,
-                "message": f"Unexpected error: {str(e)}",
-                "unexpected_error": True
-            }
+    except Exception as e:
+        logger.error(f"Unexpected error sending LANDING_TARGET: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Unexpected error: {str(e)}",
+            "unexpected_error": True
+        }
 
 
 def calculate_angular_offsets(detection: Dict[str, Any],
@@ -396,7 +306,6 @@ def estimate_target_size_angular(detection: Dict[str, Any],
 def send_apriltag_as_landing_target(detection: Dict[str, Any],
                                     image_width: int,
                                     image_height: int,
-                                    sender: LandingTargetSender,
                                     camera_hfov_deg: float = 62.2,
                                     camera_vfov_deg: float = 48.8) -> Dict[str, Any]:
     """
@@ -406,7 +315,6 @@ def send_apriltag_as_landing_target(detection: Dict[str, Any],
         detection: AprilTag detection dictionary
         image_width: Width of the image in pixels
         image_height: Height of the image in pixels
-        sender: LandingTargetSender instance
         camera_hfov_deg: Horizontal field of view in degrees
         camera_vfov_deg: Vertical field of view in degrees
 
@@ -422,16 +330,14 @@ def send_apriltag_as_landing_target(detection: Dict[str, Any],
         size = estimate_target_size_angular(detection, image_width, image_height,
                                             camera_hfov_deg, camera_vfov_deg)
 
-        # Send LANDING_TARGET message
-        result = sender.send_landing_target(
+        # Send LANDING_TARGET message directly (no sender instance needed)
+        result = send_landing_target(
             angle_x=angles["angle_x"],
             angle_y=angles["angle_y"],
             distance=0.0,  # Distance unknown from vision alone
             size_x=size["size_x"],
             size_y=size["size_y"],
-            target_num=detection["tag_id"],  # Use AprilTag ID as target number
-            frame=MAV_FRAME_BODY_FRD,  # Body frame forward-right-down
-            position_type=LANDING_TARGET_TYPE_VISION_FIDUCIAL
+            target_num=detection["tag_id"]  # Use AprilTag ID as target number
         )
 
         if result["success"]:
@@ -454,32 +360,3 @@ def send_apriltag_as_landing_target(detection: Dict[str, Any],
             "message": f"Conversion error: {str(e)}",
             "conversion_error": True
         }
-
-
-def get_landing_target_sender(mav2rest_endpoint: str = MAV2REST_ENDPOINT, target_system: int = 1) -> LandingTargetSender:
-    """
-    Create a new LandingTargetSender instance
-
-    Args:
-        mav2rest_endpoint: MAV2Rest API endpoint URL
-        target_system: Target system ID for MAVLink messages
-
-    Returns:
-        LandingTargetSender instance
-    """
-    return LandingTargetSender(mav2rest_endpoint, target_system)
-
-
-def test_mav2rest_connection(mav2rest_endpoint: str = MAV2REST_ENDPOINT, target_system: int = 1) -> Dict[str, Any]:
-    """
-    Test connection to MAV2Rest API
-
-    Args:
-        mav2rest_endpoint: MAV2Rest API endpoint URL
-        target_system: Target system ID for MAVLink messages
-
-    Returns:
-        Dictionary with connection test results
-    """
-    sender = get_landing_target_sender(mav2rest_endpoint, target_system)
-    return sender.test_connection()

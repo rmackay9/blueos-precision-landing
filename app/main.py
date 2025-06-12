@@ -81,11 +81,8 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
         # Get MAVLink target system ID from settings
         target_system_id = settings.get_mavlink_flight_controller_sysid()
 
-        # Initialize landing target sender
-        sender = send_landing_target.get_landing_target_sender(target_system=target_system_id)
-
         # Test MAV2Rest connection
-        mav_test = sender.test_connection()
+        mav_test = send_landing_target.test_mav2rest_connection()
         if not mav_test["success"]:
             logger.error(f"MAV2Rest connection failed: {mav_test['message']}")
             precision_landing_running = False
@@ -134,7 +131,7 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
 
                     # Send LANDING_TARGET message
                     send_result = send_landing_target.send_apriltag_as_landing_target(
-                        detected_tag, width, height, sender, camera_horizontal_fov
+                        detected_tag, width, height, camera_horizontal_fov
                     )
 
                     if send_result["success"]:
@@ -398,7 +395,7 @@ async def test_mavlink_connection() -> Dict[str, Any]:
 
     try:
         target_system_id = settings.get_mavlink_flight_controller_sysid()
-        result = send_landing_target.test_mav2rest_connection(target_system=target_system_id)
+        result = send_landing_target.test_mav2rest_connection()
         if result["success"]:
             logger.info("MAV2Rest connection test successful")
         else:
