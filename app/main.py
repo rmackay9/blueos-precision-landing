@@ -23,6 +23,7 @@ from typing import Dict, Any
 from app import settings
 from app import image_capture
 from app import send_landing_target
+from app import april_tags
 
 # Configure console logging
 console_handler = logging.StreamHandler(sys.stdout)
@@ -105,7 +106,7 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
         while precision_landing_running:
             try:
                 # Capture frame from RTSP stream
-                frame_result = image_capture.capture_frame_from_stream(rtsp_url, timeout_seconds=30)
+                frame_result = image_capture.capture_frame_from_stream(rtsp_url)
 
                 if not frame_result["success"]:
                     logger.warning(f"Failed to capture frame: {frame_result['message']}")
@@ -114,32 +115,34 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
 
                 frame_count += 1
 
-                # Check for AprilTag detections
-                april_tag_detection = frame_result.get("april_tag_detection", {})
+                # Get the captured frame
+                frame = frame_result["frame"]
+                width = frame_result["width"]
+                height = frame_result["height"]
 
-                if april_tag_detection.get("success") and april_tag_detection.get("detections"):
-                    # Detections are already filtered by target ID in capture_frame_from_stream
-                    target_detections = april_tag_detection["detections"]
+                # Perform AprilTag detection (returns single detection with lowest ID)
+                april_tag_result = april_tags.detect_april_tags(
+                    frame,
+                    tag_family=settings.get_apriltag_family(),
+                    target_id=target_apriltag_id,
+                    include_augmented_image=False  # Don't need augmented image for precision landing
+                )
 
-                    if target_detections:
-                        # Get image dimensions from resolution string
-                        resolution = frame_result.get("resolution", "640x480")
-                        width, height = map(int, resolution.split('x'))
+                if april_tag_result.get("success") and april_tag_result.get("detection"):
+                    # Get the single detected tag (lowest ID)
+                    detected_tag = april_tag_result["detection"]
 
-                        # Process the largest (closest) AprilTag with matching ID
-                        largest_tag = max(target_detections, key=lambda x: x.get("relative_size", 0))
+                    # Send LANDING_TARGET message
+                    send_result = send_landing_target.send_apriltag_as_landing_target(
+                        detected_tag, width, height, sender, camera_horizontal_fov
+                    )
 
-                        # Send LANDING_TARGET message
-                        send_result = send_landing_target.send_apriltag_as_landing_target(
-                            largest_tag, width, height, sender, camera_horizontal_fov
-                        )
-
-                        if send_result["success"]:
-                            logger.info(f"Frame {frame_count}: Sent LANDING_TARGET for AprilTag ID {largest_tag['tag_id']} "
-                                        f"(angle_x={send_result['angles']['angle_x_deg']:.2f}°, "
-                                        f"angle_y={send_result['angles']['angle_y_deg']:.2f}°)")
-                        else:
-                            logger.warning(f"Failed to send LANDING_TARGET: {send_result['message']}")
+                    if send_result["success"]:
+                        logger.info(f"Frame {frame_count}: Sent LANDING_TARGET for AprilTag ID {detected_tag['tag_id']} "
+                                    f"(angle_x={send_result['angles']['angle_x_deg']:.2f}°, "
+                                    f"angle_y={send_result['angles']['angle_y_deg']:.2f}°)")
+                    else:
+                        logger.warning(f"Failed to send LANDING_TARGET: {send_result['message']}")
                 else:
                     # No AprilTag detected or none matched target ID
                     if frame_count % 10 == 0:  # Log every 10 frames
@@ -292,13 +295,13 @@ async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
     try:
         # Run the RTSP connection test in a thread to avoid blocking
         def run_test():
-            return image_capture.test_rtsp_connection(rtsp, timeout_seconds=240)
+            return image_capture.test_rtsp_connection(rtsp)
 
         # Run the test in an executor to avoid blocking the async loop
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(run_test)
-            result = future.result(timeout=240)  # 240 second total timeout (4 minutes)
+            result = future.result(timeout=60)  # 60 second timeout should be sufficient
 
         if result["success"]:
             logger.info(f"RTSP test successful for {type}: {result['message']}")
@@ -314,7 +317,7 @@ async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
         logger.error(f"RTSP test timed out for {type} camera")
         return {
             "success": False,
-            "message": "Test timed out - unable to connect to camera within 240 seconds (4 minutes)",
+            "message": "Test timed out - unable to connect to camera within 60 seconds",
             "error": "Connection timeout"
         }
     except Exception as e:

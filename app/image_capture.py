@@ -15,7 +15,6 @@ Based on the working implementation from https://github.com/mzahana/siyi_sdk
 
 import cv2
 import base64
-import threading
 import logging
 from typing import Dict, Any
 
@@ -32,107 +31,62 @@ except ImportError as e:
     APRIL_TAGS_AVAILABLE = False
     april_tags = None
 
-# Import settings module
-try:
-    from app import settings
-    logger.info("Settings module imported successfully")
-except ImportError as e:
-    logger.warning(f"Settings module not available: {str(e)}")
-    settings = None
-
 
 # test RTSP connection using OpenCV with FFMPEG backend
 # called from index.html's Test button
-def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str, Any]:
+def test_rtsp_connection(rtsp_url: str) -> Dict[str, Any]:
     """
-    Test RTSP connection using SIYI SDK's proven approach with OpenCV FFmpeg backend.
-    Based on the working implementation from https://github.com/mzahana/siyi_sdk
+    Test RTSP connection and capture a frame with AprilTag detection.
     Returns connection status and basic stream information.
     """
     logger.info(f"Testing RTSP connection to: {rtsp_url}")
 
-    # Initialize video capture object
-    cap = None
-
     try:
-        # Log the attempt to connect
-        logger.info(f"Testing RTSP connection to: {rtsp_url}")
+        # capture single frame from RTSP stream
+        frame_result = capture_frame_from_stream(rtsp_url)
 
-        # Use FFMPEG backend for RTSP connection
-        cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-
-        if not cap.isOpened():
-            logger.warning("Connection failed")
+        if not frame_result["success"]:
             return {
                 "success": False,
-                "message": f"Video capture failed with {rtsp_url}",
-                "error": "Failed to open video capture"
+                "message": f"RTSP connection failed: {frame_result['message']}",
+                "error": frame_result.get("error", "Frame capture failed")
             }
 
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer size for lower latency
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution to reduce data size
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
+        # Get frame data
+        frame = frame_result["frame"]
+        width = frame_result["width"]
+        height = frame_result["height"]
 
-        logger.info(f"Testing frame capture from {rtsp_url}")
+        logger.info(f"Frame capture successful: {width}x{height}")
 
-        # Test frame capture with separate thread (similar to SIYI SDK)
-        frame_data = {"frame": None, "ret": False, "success": False}
-
-        def frame_capture_thread():
-            """Thread function to read frames from the video capture"""
-            try:
-                ret, frame = cap.read()
-                frame_data["ret"] = ret
-                frame_data["frame"] = frame
-                if ret and frame is not None:
-                    frame_data["success"] = True
-                    logger.debug("Frame capture successful")
-                else:
-                    logger.debug(f"Frame capture failed: ret={ret}")
-            except Exception as e:
-                logger.error(f"Exception during frame capture: {str(e)}")
-
-        # Start frame capture in a separate thread
-        frame_thread = threading.Thread(target=frame_capture_thread)
-        frame_thread.daemon = True
-        frame_thread.start()
-
-        # Wait for the thread to complete with timeout
-        frame_thread.join(timeout=timeout_seconds)
-
-        if frame_thread.is_alive():
-            logger.warning("Frame capture thread timed out")
-            return {
-                "success": False,
-                "message": f"Frame capture timed out after {timeout_seconds} seconds using {rtsp_url}",
-                "error": "Frame capture timeout"
-            }
-
-        # Check if frame capture was successful
-        if frame_data["success"] and frame_data["frame"] is not None:
-            height, width = frame_data["frame"].shape[:2]
-            logger.info(f"Frame capture dimensions: {width}x{height}")
-
-            # Perform AprilTag detection and get encoded image
-            april_tag_result = _detect_april_tags_and_encode_image(frame_data["frame"])
-            detection_result = april_tag_result["detection_result"]
-            image_base64 = april_tag_result["image_base64"]
-
-            return {
-                "success": True,
-                "message": f"RTSP connection successful ({width}x{height}). Method: {rtsp_url}",
-                "connection_method": rtsp_url,
-                "resolution": f"{width}x{height}",
-                "image_base64": image_base64,
-                "april_tag_detection": detection_result
-            }
+        # Perform AprilTag detection with default settings and include augmented image
+        if APRIL_TAGS_AVAILABLE and april_tags is not None:
+            result = april_tags.detect_april_tags(
+                frame,
+                tag_family="tag36h11",
+                target_id=-1,
+                include_augmented_image=True
+            )
+            detection_result = {"success": result["success"], "message": result["message"], "detections": [result["detection"]] if result["detection"] else []}
+            image_base64 = result["image_base64"]
         else:
-            return {
+            # Encode original frame as base64 if AprilTags not available
+            _, buffer = cv2.imencode('.jpg', frame)
+            image_base64 = base64.b64encode(buffer).decode('utf-8')
+            detection_result = {
                 "success": False,
-                "message": f"Connected but unable to read frames. Method: {rtsp_url}",
-                "error": "No video data received"
+                "message": "AprilTag detection module not available",
+                "detections": []
             }
+
+        return {
+            "success": True,
+            "message": f"RTSP connection successful ({width}x{height}). Method: {rtsp_url}",
+            "connection_method": rtsp_url,
+            "resolution": f"{width}x{height}",
+            "image_base64": image_base64,
+            "april_tag_detection": detection_result
+        }
 
     except Exception as e:
         logger.exception(f"Exception during RTSP test: {str(e)}")
@@ -141,23 +95,19 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
             "message": f"Error testing RTSP connection: {str(e)}. Method: {rtsp_url}",
             "error": str(e)
         }
-    finally:
-        if cap is not None:
-            cap.release()
 
 
 # captures a single frame from an RTSP stream
-def capture_frame_from_stream(rtsp_url: str, timeout_seconds: int = 30) -> Dict[str, Any]:
+def capture_frame_from_stream(rtsp_url: str) -> Dict[str, Any]:
     """
     Capture a single frame from an RTSP stream.
     This is a simplified version focused on just getting one frame quickly.
 
     Args:
         rtsp_url: The RTSP URL to connect to
-        timeout_seconds: Timeout for frame capture (currently unused in this simplified version)
 
     Returns:
-        Dictionary with success status and frame data
+        Dictionary with success status and frame data (numpy array)
     """
     logger.info(f"Capturing frame from: {rtsp_url}")
 
@@ -179,17 +129,13 @@ def capture_frame_from_stream(rtsp_url: str, timeout_seconds: int = 30) -> Dict[
         if ret and frame is not None:
             height, width = frame.shape[:2]
 
-            # Perform AprilTag detection and get encoded image
-            april_tag_result = _detect_april_tags_and_encode_image(frame)
-            detection_result = april_tag_result["detection_result"]
-            image_base64 = april_tag_result["image_base64"]
-
             return {
                 "success": True,
                 "message": f"Frame captured successfully ({width}x{height})",
+                "frame": frame,
                 "resolution": f"{width}x{height}",
-                "image_base64": image_base64,
-                "april_tag_detection": detection_result
+                "width": width,
+                "height": height
             }
         else:
             return {
@@ -208,59 +154,3 @@ def capture_frame_from_stream(rtsp_url: str, timeout_seconds: int = 30) -> Dict[
     finally:
         if cap is not None:
             cap.release()
-
-
-# Helper function to detect AprilTags and encode image as base64
-def _detect_april_tags_and_encode_image(frame) -> Dict[str, Any]:
-    """
-    Helper function to detect AprilTags and encode image as base64.
-    Returns detection results and base64 encoded image.
-    """
-    # Get AprilTag family and target ID from settings
-    apriltag_family = "tag36h11"  # default
-    target_apriltag_id = -1  # default (detect any ID)
-
-    if settings is not None:
-        try:
-            apriltag_family = settings.get_apriltag_family()
-            target_apriltag_id = settings.get_apriltag_target_id()
-        except Exception as e:
-            logger.warning(f"Could not get AprilTag settings: {e}")
-
-    # Perform AprilTag detection on the captured frame if available
-    # Pass target_id directly to detection for efficiency (filter at detection time)
-    if APRIL_TAGS_AVAILABLE and april_tags is not None:
-        try:
-            detection_result = april_tags.detect_april_tags(frame, tag_family=apriltag_family, target_id=target_apriltag_id)
-
-        except Exception as e:
-            logger.error(f"Error during AprilTag detection: {str(e)}")
-            detection_result = {
-                "success": False,
-                "message": f"AprilTag detection error: {str(e)}",
-                "detections": [],
-                "augmented_image_base64": ""
-            }
-    else:
-        logger.debug("AprilTag detection not available - using original image")
-        detection_result = {
-            "success": False,
-            "message": "AprilTag detection module not available",
-            "detections": [],
-            "augmented_image_base64": ""
-        }
-
-    # Use augmented image if AprilTag detection was successful, otherwise use original
-    if detection_result["success"] and detection_result.get("augmented_image_base64"):
-        image_base64 = detection_result["augmented_image_base64"]
-        logger.info(f"AprilTag detection: {detection_result['message']}")
-    else:
-        # Encode original frame as base64
-        _, buffer = cv2.imencode('.jpg', frame)
-        image_base64 = base64.b64encode(buffer).decode('utf-8')
-        logger.info(f"AprilTag detection failed: {detection_result.get('message', 'Unknown error')}")
-
-    return {
-        "detection_result": detection_result,
-        "image_base64": image_base64
-    }

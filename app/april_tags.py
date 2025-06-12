@@ -10,7 +10,7 @@ augmented images with detection visualizations.
 import cv2
 import numpy as np
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 import base64
 
 # Get logger
@@ -25,62 +25,25 @@ except Exception as e:
     logger.warning(f"AprilTag library not available: {str(e)}. Please install with: pip install apriltag")
 
 
-class AprilTagDetector:
-    """AprilTag detector class for precision landing"""
-
-    def __init__(self, tag_family: str = "tag36h11"):
-        """
-        Initialize the AprilTag detector
-
-        Args:
-            tag_family: AprilTag family to detect (tag36h11, tag25h9, tag16h5, tagCircle21h7, tagStandard41h12)
-        """
-        self.tag_family = tag_family
-        self.detector = None
-
-        if APRILTAG_AVAILABLE:
-            try:
-                # Create detector with optimized options for precision landing
-                options = apriltag.DetectorOptions(
-                    families=tag_family,
-                    border=1,
-                    nthreads=4,
-                    quad_decimate=1.0,
-                    quad_blur=0.0,
-                    refine_edges=True,
-                    refine_decode=False,
-                    refine_pose=False,
-                    debug=False,
-                    quad_contours=True
-                )
-                self.detector = apriltag.Detector(options)
-                logger.info(f"AprilTag detector initialized with family: {tag_family}")
-            except Exception as e:
-                logger.error(f"Failed to initialize AprilTag detector: {str(e)}")
-                self.detector = None
-        else:
-            logger.error("Cannot initialize AprilTag detector - library not available")
-
-
-def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11", target_id: int = -1) -> Dict[str, Any]:
+def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11", target_id: int = -1, include_augmented_image: bool = False) -> Dict[str, Any]:
     """
-    Detect AprilTags in an image and return augmented image with detection data
+    Detect AprilTags in an image and return the tag with the lowest ID
 
     Args:
         image: Input image as numpy array (BGR format from OpenCV)
         tag_family: AprilTag family to detect
         target_id: Target AprilTag ID to detect (-1 means detect any ID, 0+ means detect only that specific ID)
+        include_augmented_image: Whether to return augmented image with detection boxes
 
     Returns:
         Dictionary containing:
         - success: bool indicating if detection was successful
-        - augmented_image: Image with red boxes drawn around detected tags
-        - augmented_image_base64: Base64 encoded augmented image
-        - detections: List of detected tag information (filtered by target_id if specified)
+        - detection: Single detection data for the tag with lowest ID (or None if no tags found)
+        - image_base64: Base64 encoded image (augmented if include_augmented_image=True, original if False, empty if no image requested)
         - message: Status message
     """
     if target_id == -1:
-        logger.info("Starting AprilTag detection (accepting any ID)")
+        logger.info("Starting AprilTag detection (accepting any ID, will return lowest ID)")
     else:
         logger.info(f"Starting AprilTag detection (targeting ID {target_id})")
 
@@ -88,20 +51,25 @@ def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11", target_id
         return {
             "success": False,
             "message": "AprilTag library not available. Please install with: pip install apriltag",
-            "detections": [],
-            "augmented_image_base64": ""
+            "detection": None,
+            "image_base64": ""
         }
 
     try:
-        # Create detector
-        detector = AprilTagDetector(tag_family)
-        if detector.detector is None:
-            return {
-                "success": False,
-                "message": "Failed to initialize AprilTag detector",
-                "detections": [],
-                "augmented_image_base64": ""
-            }
+        # Create detector with optimized options for precision landing
+        options = apriltag.DetectorOptions(
+            families=tag_family,
+            border=1,
+            nthreads=4,
+            quad_decimate=1.0,
+            quad_blur=0.0,
+            refine_edges=True,
+            refine_decode=False,
+            refine_pose=False,
+            debug=False,
+            quad_contours=True
+        )
+        detector = apriltag.Detector(options)
 
         # Convert to grayscale for detection
         if len(image.shape) == 3:
@@ -110,28 +78,22 @@ def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11", target_id
             gray = image
 
         # Detect AprilTags
-        detections = detector.detector.detect(gray)
+        detections = detector.detect(gray)
 
-        # Create augmented image (copy original)
-        augmented_image = image.copy()
-
-        # Process detections and filter by target_id at detection time
-        detection_data = []
+        # Process detections and find the one with lowest ID (or matching target_id)
+        valid_detections = []
         all_detected_ids = []
 
         for detection in detections:
-            # Get tag information
             tag_id = detection.tag_id
             all_detected_ids.append(int(tag_id))
 
-            # Filter by target_id at detection time for efficiency
+            # Filter by target_id if specified
             if target_id != -1 and tag_id != target_id:
                 continue  # Skip this detection if it doesn't match target_id
 
             center = detection.center
             corners = detection.corners
-
-            # ...existing code...
             corner_array = np.array(corners)
             width = np.max(corner_array[:, 0]) - np.min(corner_array[:, 0])
             height = np.max(corner_array[:, 1]) - np.min(corner_array[:, 1])
@@ -153,40 +115,58 @@ def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11", target_id
                 "relative_size": float(relative_size),
                 "confidence": float(detection.decision_margin) if hasattr(detection, 'decision_margin') else 1.0
             }
-            detection_data.append(detection_info)
+            valid_detections.append(detection_info)
 
-            # Draw red box around the tag
-            corners_int = corners.astype(int)
-            cv2.polylines(augmented_image, [corners_int], True, (0, 0, 255), 3)  # Red color in BGR
-
-            # Draw center point
-            center_int = (int(center[0]), int(center[1]))
-            cv2.circle(augmented_image, center_int, 5, (0, 0, 255), -1)
-
-        # Encode augmented image as base64
-        _, buffer = cv2.imencode('.jpg', augmented_image)
-        augmented_image_base64 = base64.b64encode(buffer).decode('utf-8')
-
-        # Generate appropriate message based on filtering
-        if target_id == -1:
-            message = f"Detected {len(detection_data)} AprilTag(s) (accepting any ID)"
-            logger.info(f"AprilTag detection completed. Found {len(detection_data)} tags (any ID)")
+        # Find the tag with the lowest ID
+        if valid_detections:
+            lowest_id_detection = min(valid_detections, key=lambda x: x["tag_id"])
         else:
-            if len(detection_data) == 0 and len(all_detected_ids) > 0:
-                message = f"Found AprilTags {all_detected_ids} but looking for specific ID {target_id}"
-                logger.info(f"AprilTag detection completed. Found {all_detected_ids} but targeting ID {target_id}")
-            else:
-                message = f"Detected {len(detection_data)} AprilTag(s) with ID {target_id}"
-                logger.info(f"AprilTag detection completed. Found {len(detection_data)} tags with ID {target_id}")
+            lowest_id_detection = None
 
-        # If no matching tags found for specific target_id, mark as unsuccessful
-        success = len(detection_data) > 0 if target_id != -1 else True
+        # Handle image encoding based on parameters
+        image_base64 = ""
+        if include_augmented_image:
+            # Create augmented image with detection box for the selected tag
+            augmented_image = image.copy()
+            if lowest_id_detection:
+                corners = np.array(lowest_id_detection["corners"])
+                corners_int = corners.astype(int)
+                cv2.polylines(augmented_image, [corners_int], True, (0, 0, 255), 3)  # Red color in BGR
+
+                # Draw center point
+                center_int = (int(lowest_id_detection["center_x"]), int(lowest_id_detection["center_y"]))
+                cv2.circle(augmented_image, center_int, 5, (0, 0, 255), -1)
+
+            # Encode augmented image as base64
+            _, buffer = cv2.imencode('.jpg', augmented_image)
+            image_base64 = base64.b64encode(buffer).decode('utf-8')
+
+        # Generate appropriate message
+        if target_id == -1:
+            if lowest_id_detection:
+                message = f"Detected AprilTag with lowest ID: {lowest_id_detection['tag_id']} (found IDs: {sorted(all_detected_ids)})"
+                logger.info(f"AprilTag detection completed. Selected tag ID {lowest_id_detection['tag_id']} from found IDs: {sorted(all_detected_ids)}")
+            else:
+                message = "No AprilTags detected"
+                logger.info("AprilTag detection completed. No tags found")
+        else:
+            if lowest_id_detection:
+                message = f"Detected target AprilTag ID: {target_id}"
+                logger.info(f"AprilTag detection completed. Found target tag ID {target_id}")
+            elif all_detected_ids:
+                message = f"Found AprilTags {sorted(all_detected_ids)} but looking for specific ID {target_id}"
+                logger.info(f"AprilTag detection completed. Found {sorted(all_detected_ids)} but targeting ID {target_id}")
+            else:
+                message = f"No AprilTags detected (looking for ID {target_id})"
+                logger.info(f"AprilTag detection completed. No tags found (targeting ID {target_id})")
+
+        success = lowest_id_detection is not None
 
         return {
             "success": success,
             "message": message,
-            "detections": detection_data,
-            "augmented_image_base64": augmented_image_base64
+            "detection": lowest_id_detection,
+            "image_base64": image_base64
         }
 
     except Exception as e:
@@ -194,124 +174,6 @@ def detect_april_tags(image: np.ndarray, tag_family: str = "tag36h11", target_id
         return {
             "success": False,
             "message": f"AprilTag detection failed: {str(e)}",
-            "detections": [],
-            "augmented_image_base64": ""
+            "detection": None,
+            "image_base64": ""
         }
-
-
-def detect_april_tags_from_base64(image_base64: str, tag_family: str = "tag36h11", target_id: int = -1) -> Dict[str, Any]:
-    """
-    Detect AprilTags from a base64 encoded image
-
-    Args:
-        image_base64: Base64 encoded image string
-        tag_family: AprilTag family to detect
-        target_id: Target AprilTag ID to detect (-1 means detect any ID, 0+ means detect only that specific ID)
-
-    Returns:
-        Dictionary containing detection results (same as detect_april_tags)
-    """
-    try:
-        # Decode base64 image
-        image_data = base64.b64decode(image_base64)
-        nparr = np.frombuffer(image_data, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        if image is None:
-            return {
-                "success": False,
-                "message": "Failed to decode base64 image",
-                "detections": [],
-                "augmented_image_base64": ""
-            }
-
-        # Perform detection
-        return detect_april_tags(image, tag_family, target_id)
-
-    except Exception as e:
-        logger.exception(f"Error processing base64 image: {str(e)}")
-        return {
-            "success": False,
-            "message": f"Failed to process base64 image: {str(e)}",
-            "detections": [],
-            "augmented_image_base64": ""
-        }
-
-
-def get_largest_april_tag(detections: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """
-    Get the largest AprilTag from a list of detections
-
-    Args:
-        detections: List of detection dictionaries
-
-    Returns:
-        Dictionary of the largest tag detection, or None if no detections
-    """
-    if not detections:
-        return None
-
-    # Find the tag with the largest relative size
-    largest_tag = max(detections, key=lambda x: x.get("relative_size", 0))
-    return largest_tag
-
-
-def calculate_landing_offset(detection: Dict[str, Any], image_width: int, image_height: int) -> Dict[str, float]:
-    """
-    Calculate landing offset from image center to AprilTag center
-
-    Args:
-        detection: AprilTag detection dictionary
-        image_width: Width of the image in pixels
-        image_height: Height of the image in pixels
-
-    Returns:
-        Dictionary with offset information:
-        - offset_x: Horizontal offset (-1 to 1, negative = left, positive = right)
-        - offset_y: Vertical offset (-1 to 1, negative = up, positive = down)
-        - distance_pixels: Distance from center in pixels
-        - distance_normalized: Distance from center normalized (0 to 1)
-    """
-    # Get image center
-    image_center_x = image_width / 2
-    image_center_y = image_height / 2
-
-    # Get tag center
-    tag_center_x = detection["center_x"]
-    tag_center_y = detection["center_y"]
-
-    # Calculate offsets (normalized to -1 to 1)
-    offset_x = (tag_center_x - image_center_x) / (image_width / 2)
-    offset_y = (tag_center_y - image_center_y) / (image_height / 2)
-
-    # Calculate distance
-    distance_pixels = np.sqrt((tag_center_x - image_center_x)**2 + (tag_center_y - image_center_y)**2)
-    max_distance = np.sqrt((image_width/2)**2 + (image_height/2)**2)
-    distance_normalized = distance_pixels / max_distance
-
-    return {
-        "offset_x": float(offset_x),
-        "offset_y": float(offset_y),
-        "distance_pixels": float(distance_pixels),
-        "distance_normalized": float(distance_normalized)
-    }
-
-
-def is_apriltag_available() -> bool:
-    """
-    Check if AprilTag library is available
-
-    Returns:
-        True if AprilTag library is available, False otherwise
-    """
-    return APRILTAG_AVAILABLE
-
-
-def get_supported_tag_families() -> List[str]:
-    """
-    Get list of supported AprilTag families
-
-    Returns:
-        List of supported tag family names
-    """
-    return ["tag36h11", "tag25h9", "tag16h5", "tagCircle21h7", "tagStandard41h12"]
