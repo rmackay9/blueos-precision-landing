@@ -210,6 +210,28 @@ def get_last_used():
     return settings.get('last_used', DEFAULT_SETTINGS['last_used'])
 
 
+# get the precision landing enabled state
+def get_precision_landing_enabled():
+    """
+    Get the precision landing enabled state
+
+    Returns:
+        bool: True if precision landing is enabled, False otherwise
+    """
+    try:
+        settings = get_settings()
+
+        # Check if precision_landing section exists
+        if 'precision_landing' in settings and 'enabled' in settings['precision_landing']:
+            return settings['precision_landing']['enabled']
+
+        # Return default if not found
+        return DEFAULT_SETTINGS['precision_landing']['enabled']
+    except Exception as e:
+        logger.error(f"Error getting precision landing enabled state: {e}")
+        return False
+
+
 # update the precision landing enabled state
 def update_precision_landing_enabled(enabled):
     """
@@ -238,29 +260,7 @@ def update_precision_landing_enabled(enabled):
         return False
 
 
-# get the precision landing enabled state
-def get_precision_landing_enabled():
-    """
-    Get the precision landing enabled state
-
-    Returns:
-        bool: True if precision landing is enabled, False otherwise
-    """
-    try:
-        settings = get_settings()
-
-        # Check if precision_landing section exists
-        if 'precision_landing' in settings and 'enabled' in settings['precision_landing']:
-            return settings['precision_landing']['enabled']
-
-        # Return default if not found
-        return DEFAULT_SETTINGS['precision_landing']['enabled']
-    except Exception as e:
-        logger.error(f"Error getting precision landing enabled state: {e}")
-        return False
-
-
-# get and update AprilTag settings
+# get AprilTag family
 def get_apriltag_family():
     """
     Get the AprilTag family setting
@@ -272,6 +272,7 @@ def get_apriltag_family():
     return settings.get('apriltag', {}).get('family', DEFAULT_SETTINGS['apriltag']['family'])
 
 
+# get apriltag target id
 def get_apriltag_target_id():
     """
     Get the AprilTag target ID setting

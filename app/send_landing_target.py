@@ -16,13 +16,13 @@ import urllib.request
 # Get logger
 logger = logging.getLogger("precision-landing")
 
-# MAV2Rest endpoint (fixed for BlueOS Docker environment)
+# MAV2Rest endpoint
 MAV2REST_ENDPOINT = "http://host.docker.internal:6040"
 
-# MAVLink component ID constants
+# MAVLink component ID
 MAV_COMP_ID_ONBOARD_COMPUTER = 191  # Component ID for onboard computer systems
 
-# LANDING_TARGET message template (based on working BlueOS pattern)
+# LANDING_TARGET message template
 LANDING_TARGET_TEMPLATE = """{{
   "header": {{
     "system_id": {sysid},
@@ -93,7 +93,7 @@ def test_mav2rest_connection(sysid: int = 1) -> Dict[str, Any]:
             logger.info(f"MAV2Rest connection successful on: {MAV2REST_ENDPOINT}")
 
             # Send a test LANDING_TARGET message to verify the connection
-            test_result = send_landing_target(
+            test_result = send_landing_target_msg(
                 angle_x=0.0,
                 angle_y=0.0,
                 distance=0.0,
@@ -140,94 +140,77 @@ def test_mav2rest_connection(sysid: int = 1) -> Dict[str, Any]:
         }
 
 
-# Send LANDING_TARGET MAVLink message
-def send_landing_target(angle_x: float,
-                        angle_y: float,
-                        distance: float = 0.0,
-                        size_x: float = 0.0,
-                        size_y: float = 0.0,
-                        target_num: int = 0,
+# send LANDING_TARGET message based on AprilTag information
+def send_landing_target(tag_id: int,
+                        tag_center_x: float,
+                        tag_center_y: float,
+                        tag_width_pixels: float,
+                        tag_height_pixels: float,
+                        image_width: int,
+                        image_height: int,
+                        camera_hfov_deg: float = 62.2,
+                        camera_vfov_deg: float = 48.8,
                         sysid: int = 1) -> Dict[str, Any]:
     """
-    Send LANDING_TARGET MAVLink message
+    Convert AprilTag detection to LANDING_TARGET MAVLink message and send it
 
     Args:
-        angle_x: X-axis angular offset in radians
-        angle_y: Y-axis angular offset in radians
-        distance: Distance to target in meters (0 if unknown)
-        size_x: Size of target along x-axis in radians (0 if unknown)
-        size_y: Size of target along y-axis in radians (0 if unknown)
-        target_num: Target number (0 for standard landing target)
+        tag_id: AprilTag ID number
+        tag_center_x: X coordinate of tag center in pixels
+        tag_center_y: Y coordinate of tag center in pixels
+        tag_width_pixels: Width of the tag in pixels
+        tag_height_pixels: Height of the tag in pixels
+        image_width: Width of the image in pixels
+        image_height: Height of the image in pixels
+        camera_hfov_deg: Horizontal field of view in degrees
+        camera_vfov_deg: Vertical field of view in degrees
         sysid: System ID to send message to
 
     Returns:
-        Dictionary with send results
+        Dictionary with conversion and send results
     """
     try:
-        # Get current time in microseconds since UNIX epoch
-        current_time = time.time()
-        time_usec = int(current_time * 1000000)
+        # Calculate angular offsets
+        angles = calculate_angular_offsets(tag_center_x, tag_center_y,
+                                           image_width, image_height,
+                                           camera_hfov_deg, camera_vfov_deg)
 
-        # Always use MAV_FRAME_LOCAL_FRD
-        frame_name = "LOCAL_FRD"
+        # Estimate angular size
+        size = estimate_target_size_angular(tag_width_pixels, tag_height_pixels,
+                                            image_width, image_height,
+                                            camera_hfov_deg, camera_vfov_deg)
 
-        # Map position type integer to type name (always use VISION_FIDUCIAL)
-        position_type_name = "VISION_FIDUCIAL"
-
-        # Format the LANDING_TARGET message using BlueOS-style template
-        landing_target_data = LANDING_TARGET_TEMPLATE.format(
-            sysid=sysid,
-            component_id=MAV_COMP_ID_ONBOARD_COMPUTER,
-            time_usec=time_usec,
-            target_num=target_num,
-            frame_name=frame_name,
-            angle_x=angle_x,
-            angle_y=angle_y,
-            distance=distance,
-            size_x=size_x,
-            size_y=size_y,
-            x=0.0,  # X Position of the landing target in MAV_FRAME (not used for angular)
-            y=0.0,  # Y Position of the landing target in MAV_FRAME (not used for angular)
-            z=0.0,  # Z Position of the landing target in MAV_FRAME (not used for angular)
-            q0=1.0,  # Quaternion of landing target orientation (not used)
-            q1=0.0,
-            q2=0.0,
-            q3=0.0,
-            position_type_name=position_type_name
+        # Send LANDING_TARGET message directly (no sender instance needed)
+        result = send_landing_target_msg(
+            angle_x=angles["angle_x"],
+            angle_y=angles["angle_y"],
+            distance=0.0,  # Distance unknown from vision alone
+            size_x=size["size_x"],
+            size_y=size["size_y"],
+            target_num=tag_id,  # Use AprilTag ID as target number
+            sysid=sysid
         )
 
-        # Send message via MAV2Rest using BlueOS-style post
-        url = f"{MAV2REST_ENDPOINT}/mavlink"
+        if result["success"]:
+            logger.info(f"Sent LANDING_TARGET for AprilTag ID {tag_id} with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}: "
+                        f"angle_x={angles['angle_x_deg']:.2f}°, angle_y={angles['angle_y_deg']:.2f}°")
 
-        logger.debug(f"Sending LANDING_TARGET with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}: angle_x={angle_x:.4f}, angle_y={angle_y:.4f}, distance={distance:.2f}")
+        # Add angle and size information to result
+        result.update({
+            "tag_id": tag_id,
+            "angles": angles,
+            "size": size,
+            "sysid": sysid
+        })
 
-        response = post_to_mav2rest(url, landing_target_data)
-
-        if response is not None:
-            logger.debug(f"LANDING_TARGET message sent successfully with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}")
-            return {
-                "success": True,
-                "message": f"LANDING_TARGET message sent successfully with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}",
-                "time_usec": time_usec,
-                "angle_x": angle_x,
-                "angle_y": angle_y,
-                "sysid": sysid,
-                "response": response
-            }
-        else:
-            logger.warning(f"Failed to send LANDING_TARGET: No response from MAV2Rest")
-            return {
-                "success": False,
-                "message": "MAV2Rest returned no response",
-                "network_error": True
-            }
+        return result
 
     except Exception as e:
-        logger.error(f"Unexpected error sending LANDING_TARGET: {str(e)}")
+        logger.error(f"Error sending LANDING_TARGET: {str(e)}")
         return {
             "success": False,
-            "message": f"Unexpected error: {str(e)}",
-            "unexpected_error": True
+            "message": f"Conversion error: {str(e)}",
+            "conversion_error": True
         }
 
 
@@ -330,75 +313,92 @@ def estimate_target_size_angular(tag_width_pixels: float,
     }
 
 
-# send LANDING_TARGET message based on AprilTag information
-def send_apriltag_as_landing_target(tag_id: int,
-                                    tag_center_x: float,
-                                    tag_center_y: float,
-                                    tag_width_pixels: float,
-                                    tag_height_pixels: float,
-                                    image_width: int,
-                                    image_height: int,
-                                    camera_hfov_deg: float = 62.2,
-                                    camera_vfov_deg: float = 48.8,
-                                    sysid: int = 1) -> Dict[str, Any]:
+# Low level function to send LANDING_TARGET MAVLink message
+def send_landing_target_msg(angle_x: float,
+                            angle_y: float,
+                            distance: float = 0.0,
+                            size_x: float = 0.0,
+                            size_y: float = 0.0,
+                            target_num: int = 0,
+                            sysid: int = 1) -> Dict[str, Any]:
     """
-    Convert AprilTag detection to LANDING_TARGET MAVLink message and send it
+    Send LANDING_TARGET MAVLink message
 
     Args:
-        tag_id: AprilTag ID number
-        tag_center_x: X coordinate of tag center in pixels
-        tag_center_y: Y coordinate of tag center in pixels
-        tag_width_pixels: Width of the tag in pixels
-        tag_height_pixels: Height of the tag in pixels
-        image_width: Width of the image in pixels
-        image_height: Height of the image in pixels
-        camera_hfov_deg: Horizontal field of view in degrees
-        camera_vfov_deg: Vertical field of view in degrees
+        angle_x: X-axis angular offset in radians
+        angle_y: Y-axis angular offset in radians
+        distance: Distance to target in meters (0 if unknown)
+        size_x: Size of target along x-axis in radians (0 if unknown)
+        size_y: Size of target along y-axis in radians (0 if unknown)
+        target_num: Target number (0 for standard landing target)
         sysid: System ID to send message to
 
     Returns:
-        Dictionary with conversion and send results
+        Dictionary with send results
     """
     try:
-        # Calculate angular offsets
-        angles = calculate_angular_offsets(tag_center_x, tag_center_y,
-                                           image_width, image_height,
-                                           camera_hfov_deg, camera_vfov_deg)
+        # Get current time in microseconds since UNIX epoch
+        current_time = time.time()
+        time_usec = int(current_time * 1000000)
 
-        # Estimate angular size
-        size = estimate_target_size_angular(tag_width_pixels, tag_height_pixels,
-                                            image_width, image_height,
-                                            camera_hfov_deg, camera_vfov_deg)
+        # Always use MAV_FRAME_LOCAL_FRD
+        frame_name = "LOCAL_FRD"
 
-        # Send LANDING_TARGET message directly (no sender instance needed)
-        result = send_landing_target(
-            angle_x=angles["angle_x"],
-            angle_y=angles["angle_y"],
-            distance=0.0,  # Distance unknown from vision alone
-            size_x=size["size_x"],
-            size_y=size["size_y"],
-            target_num=tag_id,  # Use AprilTag ID as target number
-            sysid=sysid
+        # Map position type integer to type name (always use VISION_FIDUCIAL)
+        position_type_name = "VISION_FIDUCIAL"
+
+        # Format the LANDING_TARGET message using BlueOS-style template
+        landing_target_data = LANDING_TARGET_TEMPLATE.format(
+            sysid=sysid,
+            component_id=MAV_COMP_ID_ONBOARD_COMPUTER,
+            time_usec=time_usec,
+            target_num=target_num,
+            frame_name=frame_name,
+            angle_x=angle_x,
+            angle_y=angle_y,
+            distance=distance,
+            size_x=size_x,
+            size_y=size_y,
+            x=0.0,  # X Position of the landing target in MAV_FRAME (not used for angular)
+            y=0.0,  # Y Position of the landing target in MAV_FRAME (not used for angular)
+            z=0.0,  # Z Position of the landing target in MAV_FRAME (not used for angular)
+            q0=1.0,  # Quaternion of landing target orientation (not used)
+            q1=0.0,
+            q2=0.0,
+            q3=0.0,
+            position_type_name=position_type_name
         )
 
-        if result["success"]:
-            logger.info(f"Sent LANDING_TARGET for AprilTag ID {tag_id} with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}: "
-                        f"angle_x={angles['angle_x_deg']:.2f}°, angle_y={angles['angle_y_deg']:.2f}°")
+        # Send message via MAV2Rest using BlueOS-style post
+        url = f"{MAV2REST_ENDPOINT}/mavlink"
 
-        # Add angle and size information to result
-        result.update({
-            "tag_id": tag_id,
-            "angles": angles,
-            "size": size,
-            "sysid": sysid
-        })
+        logger.debug(f"Sending LANDING_TARGET with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}: angle_x={angle_x:.4f}, angle_y={angle_y:.4f}, distance={distance:.2f}")
 
-        return result
+        response = post_to_mav2rest(url, landing_target_data)
+
+        if response is not None:
+            logger.debug(f"LANDING_TARGET message sent successfully with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}")
+            return {
+                "success": True,
+                "message": f"LANDING_TARGET message sent successfully with SysID {sysid} CompID {MAV_COMP_ID_ONBOARD_COMPUTER}",
+                "time_usec": time_usec,
+                "angle_x": angle_x,
+                "angle_y": angle_y,
+                "sysid": sysid,
+                "response": response
+            }
+        else:
+            logger.warning(f"Failed to send LANDING_TARGET: No response from MAV2Rest")
+            return {
+                "success": False,
+                "message": "MAV2Rest returned no response",
+                "network_error": True
+            }
 
     except Exception as e:
-        logger.error(f"Error converting AprilTag to LANDING_TARGET: {str(e)}")
+        logger.error(f"Unexpected error sending LANDING_TARGET: {str(e)}")
         return {
             "success": False,
-            "message": f"Conversion error: {str(e)}",
-            "conversion_error": True
+            "message": f"Unexpected error: {str(e)}",
+            "unexpected_error": True
         }

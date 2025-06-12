@@ -12,6 +12,7 @@
 import logging.handlers
 import sys
 import asyncio
+from math import tan, atan, radians, degrees
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -57,6 +58,19 @@ precision_landing_running = False
 logger.info("Precision Landing backend started")
 
 
+# Auto-start precision landing if it was previously enabled
+async def startup_auto_restart():
+    """Check if precision landing was previously enabled and auto-restart if needed"""
+    try:
+        enabled = settings.get_precision_landing_enabled()
+        if enabled:
+            logger.info("Auto-restarting precision landing as it was previously enabled")
+            # Don't await this so startup doesn't block
+            asyncio.create_task(start_precision_landing_internal())
+    except Exception as e:
+        logger.error(f"Error during auto-restart check: {str(e)}")
+
+
 # Internal function to start precision landing
 async def start_precision_landing_internal(camera_type: str = None, rtsp_url: str = None):
     """Internal function to start the precision landing process"""
@@ -75,8 +89,8 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
         logger.info(f"Precision landing using camera: {camera_type}, RTSP: {rtsp_url}")
 
         # Get camera FOV setting
-        camera_horizontal_fov = settings.get_camera_horizontal_fov(camera_type)
-        logger.info(f"Using horizontal FOV: {camera_horizontal_fov}° for camera type: {camera_type}")
+        camera_hfov = settings.get_camera_horizontal_fov(camera_type)
+        logger.info(f"Using horizontal FOV: {camera_hfov}° for camera type: {camera_type}")
 
         # Get MAVLink target system ID from settings
         target_system_id = settings.get_mavlink_sysid()
@@ -117,6 +131,9 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
                 width = frame_result["width"]
                 height = frame_result["height"]
 
+                # calculate hfov
+                camera_vfov = calculate_vertical_fov(camera_hfov, width, height)
+
                 # Perform AprilTag detection (returns single detection with lowest ID)
                 april_tag_result = april_tags.detect_april_tags(
                     frame,
@@ -130,7 +147,7 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
                     detected_tag = april_tag_result["detection"]
 
                     # Send LANDING_TARGET message
-                    send_result = send_landing_target.send_apriltag_as_landing_target(
+                    send_result = send_landing_target.send_landing_target(
                         detected_tag["tag_id"],
                         detected_tag["center_x"],
                         detected_tag["center_y"],
@@ -138,8 +155,8 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
                         detected_tag["height"],
                         width,
                         height,
-                        camera_horizontal_fov,
-                        camera_vfov_deg=48.8,  # Default vertical FOV
+                        camera_hfov,
+                        camera_vfov,
                         sysid=target_system_id
                     )
 
@@ -171,55 +188,30 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
         logger.info("Precision landing process stopped")
 
 
-# Auto-start precision landing if it was previously enabled
-async def startup_auto_restart():
-    """Check if precision landing was previously enabled and auto-restart if needed"""
-    try:
-        enabled = settings.get_precision_landing_enabled()
-        if enabled:
-            logger.info("Auto-restarting precision landing as it was previously enabled")
-            # Don't await this so startup doesn't block
-            asyncio.create_task(start_precision_landing_internal())
-    except Exception as e:
-        logger.error(f"Error during auto-restart check: {str(e)}")
+# helper function to calculate the vertical FOV based on the horizontal FOV, image width, and height (in pixels)
+def calculate_vertical_fov(hfov_deg: float, width: int, height: int) -> float:
+    """Calculate vertical FOV based on horizontal FOV, image width, and height
+       tan(vfov/2) = tan(hfov/2) * (height/width)
+    """
 
+    # sanity check width
+    if width <= 0:
+        return 0
+
+    # Convert horizontal FOV from degrees to radians
+    hfov_rad = radians(hfov_deg)
+
+    # Calculate aspect ratio
+    aspect_ratio = height / width
+
+    # Use trigonometric relationship to calculate vertical FOV
+    vfov_rad = 2 * atan(tan(hfov_rad / 2) * aspect_ratio)
+
+    # Convert back to degrees
+    vfov_deg = degrees(vfov_rad)
+    return vfov_deg
 
 # Precision Landing API Endpoints
-
-# Save precision landing settings
-@app.post("/precision-landing/save-settings")
-async def save_precision_landing_settings(
-    type: str,
-    rtsp: str,
-    fov: float = None,
-    apriltag_family: str = None,
-    tag_id: int = None,
-    flight_controller_sysid: int = None  # Keep this for HTML compatibility
-) -> Dict[str, Any]:
-    """Save camera settings and other precision landing settings to persistent storage (using query parameters)"""
-    # Map flight_controller_sysid to sysid for internal use
-    sysid = flight_controller_sysid
-    logger.info(f"Saving precision landing settings: type={type}, rtsp_url={rtsp}, fov={fov}, "
-                f"apriltag_family={apriltag_family}, tag_id={tag_id}, sysid={sysid}")
-
-    # Save camera settings
-    camera_success = settings.update_camera_settings(type, rtsp, fov)
-
-    # Save AprilTag settings
-    apriltag_success = True
-    if apriltag_family is not None or tag_id is not None:
-        apriltag_success = settings.update_apriltag_settings(apriltag_family, tag_id)
-
-    # Save MAVLink settings
-    mavlink_success = True
-    if sysid is not None:
-        mavlink_success = settings.update_mavlink_sysid(sysid)
-
-    if camera_success and apriltag_success and mavlink_success:
-        return {"success": True, "message": f"Settings saved for {type}"}
-    else:
-        return {"success": False, "message": "Failed to save some settings"}
-
 
 # Load precision landing settings
 @app.post("/precision-landing/get-settings")
@@ -264,17 +256,39 @@ async def get_precision_landing_settings() -> Dict[str, Any]:
         return {"success": False, "message": f"Error: {str(e)}"}
 
 
-# Save precision landing enabled state
-@app.post("/precision-landing/save-enabled-state")
-async def save_precision_landing_enabled_state(enabled: bool) -> Dict[str, Any]:
-    """Save precision landing enabled state to persistent storage (using query parameter)"""
-    logger.info(f"Saving precision landing enabled state: {enabled}")
-    success = settings.update_precision_landing_enabled(enabled)
+# Save precision landing settings
+@app.post("/precision-landing/save-settings")
+async def save_precision_landing_settings(
+    type: str,
+    rtsp: str,
+    fov: float = None,
+    apriltag_family: str = None,
+    tag_id: int = None,
+    flight_controller_sysid: int = None  # Keep this for HTML compatibility
+) -> Dict[str, Any]:
+    """Save camera settings and other precision landing settings to persistent storage (using query parameters)"""
+    # Map flight_controller_sysid to sysid for internal use
+    sysid = flight_controller_sysid
+    logger.info(f"Saving precision landing settings: type={type}, rtsp_url={rtsp}, fov={fov}, "
+                f"apriltag_family={apriltag_family}, tag_id={tag_id}, sysid={sysid}")
 
-    if success:
-        return {"success": True, "message": f"Enabled state saved: {enabled}"}
+    # Save camera settings
+    camera_success = settings.update_camera_settings(type, rtsp, fov)
+
+    # Save AprilTag settings
+    apriltag_success = True
+    if apriltag_family is not None or tag_id is not None:
+        apriltag_success = settings.update_apriltag_settings(apriltag_family, tag_id)
+
+    # Save MAVLink settings
+    mavlink_success = True
+    if sysid is not None:
+        mavlink_success = settings.update_mavlink_sysid(sysid)
+
+    if camera_success and apriltag_success and mavlink_success:
+        return {"success": True, "message": f"Settings saved for {type}"}
     else:
-        return {"success": False, "message": "Failed to save enabled state"}
+        return {"success": False, "message": "Failed to save some settings"}
 
 
 # Get precision landing enabled state
@@ -292,6 +306,19 @@ async def get_precision_landing_enabled_state() -> Dict[str, Any]:
     except Exception as e:
         logger.exception(f"Error getting precision landing enabled state: {str(e)}")
         return {"success": False, "message": f"Error: {str(e)}", "enabled": False}
+
+
+# Save precision landing enabled state
+@app.post("/precision-landing/save-enabled-state")
+async def save_precision_landing_enabled_state(enabled: bool) -> Dict[str, Any]:
+    """Save precision landing enabled state to persistent storage (using query parameter)"""
+    logger.info(f"Saving precision landing enabled state: {enabled}")
+    success = settings.update_precision_landing_enabled(enabled)
+
+    if success:
+        return {"success": True, "message": f"Enabled state saved: {enabled}"}
+    else:
+        return {"success": False, "message": "Failed to save enabled state"}
 
 
 # Test image retrieval from the RTSP stream and AprilTag detection
@@ -331,6 +358,23 @@ async def test_precision_landing(type: str, rtsp: str) -> Dict[str, Any]:
     except Exception as e:
         logger.exception(f"Error during precision landing test: {str(e)}")
         return {"success": False, "message": f"Test failed: {str(e)}"}
+
+
+# Get precision landing running status
+@app.get("/precision-landing/status")
+async def get_precision_landing_status() -> Dict[str, Any]:
+    """Get precision landing running status"""
+    logger.debug("Getting precision landing status")
+
+    try:
+        return {
+            "success": True,
+            "running": precision_landing_running,
+            "message": "Running" if precision_landing_running else "Stopped"
+        }
+    except Exception as e:
+        logger.exception(f"Error getting precision landing status: {str(e)}")
+        return {"success": False, "message": f"Error: {str(e)}", "running": False}
 
 
 # Start precision landing (this is called by the frontend's "Run" button)
@@ -379,23 +423,6 @@ async def stop_precision_landing() -> Dict[str, Any]:
     except Exception as e:
         logger.exception(f"Error stopping precision landing: {str(e)}")
         return {"success": False, "message": f"Failed to stop: {str(e)}"}
-
-
-# Get precision landing running status
-@app.get("/precision-landing/status")
-async def get_precision_landing_status() -> Dict[str, Any]:
-    """Get precision landing running status"""
-    logger.debug("Getting precision landing status")
-
-    try:
-        return {
-            "success": True,
-            "running": precision_landing_running,
-            "message": "Running" if precision_landing_running else "Stopped"
-        }
-    except Exception as e:
-        logger.exception(f"Error getting precision landing status: {str(e)}")
-        return {"success": False, "message": f"Error: {str(e)}", "running": False}
 
 
 # Test MAV2Rest MAVLink connection
