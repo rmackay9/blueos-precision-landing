@@ -136,12 +136,10 @@ async def start_precision_landing_internal(camera_type: str = None, rtsp_url: st
 
                         if send_result["success"]:
                             logger.info(f"Frame {frame_count}: Sent LANDING_TARGET for AprilTag ID {largest_tag['tag_id']} "
-                                      f"(angle_x={send_result['angles']['angle_x_deg']:.2f}°, "
-                                      f"angle_y={send_result['angles']['angle_y_deg']:.2f}°)")
+                                        f"(angle_x={send_result['angles']['angle_x_deg']:.2f}°, "
+                                        f"angle_y={send_result['angles']['angle_y_deg']:.2f}°)")
                         else:
                             logger.warning(f"Failed to send LANDING_TARGET: {send_result['message']}")
-                    # Note: No else block needed here because filtering is now done in capture_frame_from_stream
-                    # If detections list is empty, it means either no AprilTags were found or none matched the target ID
                 else:
                     # No AprilTag detected or none matched target ID
                     if frame_count % 10 == 0:  # Log every 10 frames

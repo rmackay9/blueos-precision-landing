@@ -11,28 +11,10 @@ import requests
 import time
 import logging
 from typing import Dict, Any, Optional
-import json
 import urllib.request
 
 # Get logger
 logger = logging.getLogger("precision-landing")
-
-# BlueOS helper functions (similar to blueoshelper.py in working DVL example)
-def post_to_mav2rest(url: str, data: str) -> Optional[str]:
-    """
-    Sends a POST request to MAV2Rest with JSON data
-    Returns response text if successful, None otherwise
-    """
-    try:
-        jsondata = data.encode("ascii")  # data should be bytes
-        req = urllib.request.Request(url, jsondata)
-        req.add_header("Content-Type", "application/json")
-
-        with urllib.request.urlopen(req, timeout=5) as response:
-            return response.read().decode()
-    except Exception as error:
-        logger.warning(f"Error in MAV2Rest POST: {url}: {error}")
-        return None
 
 # Import settings module
 try:
@@ -71,6 +53,24 @@ LANDING_TARGET_TYPE_LIGHT_BEACON = 0
 LANDING_TARGET_TYPE_RADIO_BEACON = 1
 LANDING_TARGET_TYPE_VISION_FIDUCIAL = 2
 LANDING_TARGET_TYPE_VISION_OTHER = 3
+
+
+# BlueOS helper functions (similar to blueoshelper.py in working DVL example)
+def post_to_mav2rest(url: str, data: str) -> Optional[str]:
+    """
+    Sends a POST request to MAV2Rest with JSON data
+    Returns response text if successful, None otherwise
+    """
+    try:
+        jsondata = data.encode("ascii")  # data should be bytes
+        req = urllib.request.Request(url, jsondata)
+        req.add_header("Content-Type", "application/json")
+
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return response.read().decode()
+    except Exception as error:
+        logger.warning(f"Error in MAV2Rest POST: {url}: {error}")
+        return None
 
 
 class LandingTargetSender:
@@ -198,14 +198,14 @@ class LandingTargetSender:
         }
 
     def send_landing_target(self,
-                          angle_x: float,
-                          angle_y: float,
-                          distance: float = 0.0,
-                          size_x: float = 0.0,
-                          size_y: float = 0.0,
-                          target_num: int = 0,
-                          frame: int = MAV_FRAME_BODY_FRD,
-                          position_type: int = LANDING_TARGET_TYPE_VISION_FIDUCIAL) -> Dict[str, Any]:
+                            angle_x: float,
+                            angle_y: float,
+                            distance: float = 0.0,
+                            size_x: float = 0.0,
+                            size_y: float = 0.0,
+                            target_num: int = 0,
+                            frame: int = MAV_FRAME_BODY_FRD,
+                            position_type: int = LANDING_TARGET_TYPE_VISION_FIDUCIAL) -> Dict[str, Any]:
         """
         Send LANDING_TARGET MAVLink message
 
@@ -344,11 +344,12 @@ class LandingTargetSender:
             except Exception as e:
                 logger.warning(f"Could not refresh flight controller SysID from settings: {e}")
 
+
 def calculate_angular_offsets(detection: Dict[str, Any],
-                            image_width: int,
-                            image_height: int,
-                            camera_hfov_deg: float = 62.2,
-                            camera_vfov_deg: float = 48.8) -> Dict[str, float]:
+                              image_width: int,
+                              image_height: int,
+                              camera_hfov_deg: float = 62.2,
+                              camera_vfov_deg: float = 48.8) -> Dict[str, float]:
     """
     Calculate angular offsets from AprilTag detection data
 
@@ -402,10 +403,10 @@ def calculate_angular_offsets(detection: Dict[str, Any],
 
 
 def estimate_target_size_angular(detection: Dict[str, Any],
-                               image_width: int,
-                               image_height: int,
-                               camera_hfov_deg: float = 62.2,
-                               camera_vfov_deg: float = 48.8) -> Dict[str, float]:
+                                 image_width: int,
+                                 image_height: int,
+                                 camera_hfov_deg: float = 62.2,
+                                 camera_vfov_deg: float = 48.8) -> Dict[str, float]:
     """
     Estimate angular size of the AprilTag target
 
@@ -446,11 +447,11 @@ def estimate_target_size_angular(detection: Dict[str, Any],
 
 
 def send_apriltag_as_landing_target(detection: Dict[str, Any],
-                                  image_width: int,
-                                  image_height: int,
-                                  sender: LandingTargetSender,
-                                  camera_hfov_deg: float = 62.2,
-                                  camera_vfov_deg: float = 48.8) -> Dict[str, Any]:
+                                    image_width: int,
+                                    image_height: int,
+                                    sender: LandingTargetSender,
+                                    camera_hfov_deg: float = 62.2,
+                                    camera_vfov_deg: float = 48.8) -> Dict[str, Any]:
     """
     Convert AprilTag detection to LANDING_TARGET MAVLink message and send it
 
@@ -468,11 +469,11 @@ def send_apriltag_as_landing_target(detection: Dict[str, Any],
     try:
         # Calculate angular offsets
         angles = calculate_angular_offsets(detection, image_width, image_height,
-                                         camera_hfov_deg, camera_vfov_deg)
+                                           camera_hfov_deg, camera_vfov_deg)
 
         # Estimate angular size
         size = estimate_target_size_angular(detection, image_width, image_height,
-                                          camera_hfov_deg, camera_vfov_deg)
+                                            camera_hfov_deg, camera_vfov_deg)
 
         # Send LANDING_TARGET message
         result = sender.send_landing_target(
@@ -488,7 +489,7 @@ def send_apriltag_as_landing_target(detection: Dict[str, Any],
 
         if result["success"]:
             logger.info(f"Sent LANDING_TARGET for AprilTag ID {detection['tag_id']}: "
-                       f"angle_x={angles['angle_x_deg']:.2f}°, angle_y={angles['angle_y_deg']:.2f}°")
+                        f"angle_x={angles['angle_x_deg']:.2f}°, angle_y={angles['angle_y_deg']:.2f}°")
 
         # Add angle and size information to result
         result.update({

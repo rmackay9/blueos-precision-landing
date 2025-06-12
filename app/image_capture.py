@@ -207,6 +207,7 @@ def capture_frame_from_stream(rtsp_url: str, timeout_seconds: int = 30) -> Dict[
         if cap is not None:
             cap.release()
 
+
 # Helper function to detect AprilTags and encode image as base64
 def _detect_april_tags_and_encode_image(frame) -> Dict[str, Any]:
     """

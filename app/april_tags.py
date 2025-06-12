@@ -10,7 +10,7 @@ augmented images with detection visualizations.
 import cv2
 import numpy as np
 import logging
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Any, Optional
 import base64
 
 # Get logger
@@ -315,6 +315,3 @@ def get_supported_tag_families() -> List[str]:
         List of supported tag family names
     """
     return ["tag36h11", "tag25h9", "tag16h5", "tagCircle21h7", "tagStandard41h12"]
-
-
-
