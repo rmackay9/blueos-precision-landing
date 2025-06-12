@@ -4,6 +4,12 @@
 Image Capture Module for Precision Landing
 
 This module handles RTSP camera connection and frame capture functionality.
+
+Methods include:
+
+- `test_rtsp_connection`: Tests RTSP connection and captures a frame.
+
+
 Based on the working implementation from https://github.com/mzahana/siyi_sdk
 """
 
@@ -50,13 +56,10 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
 
     try:
         # Log the attempt to connect
-        logger.info("Attempting connection...")
+        logger.info(f"Testing RTSP connection to: {rtsp_url}")
 
         # Use FFMPEG backend for RTSP connection
         cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-
-        # check if the capture is opened successfully
-        logger.info("Checking connection...")
 
         if not cap.isOpened():
             logger.warning("Connection failed")
@@ -71,28 +74,27 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS to reduce processing load
 
-        logger.info(f"Video capture succeeded with {rtsp_url}")
+        logger.info(f"Testing frame capture from {rtsp_url}")
 
-        # Test frame reading with separate thread (similar to SIYI SDK)
+        # Test frame capture with separate thread (similar to SIYI SDK)
         frame_data = {"frame": None, "ret": False, "success": False}
 
-        def read_frame_thread():
+        def frame_capture_thread():
             """Thread function to read frames from the video capture"""
             try:
-                logger.debug("Frame reading thread started")
                 ret, frame = cap.read()
                 frame_data["ret"] = ret
                 frame_data["frame"] = frame
                 if ret and frame is not None:
                     frame_data["success"] = True
-                    logger.debug("Frame read successful in thread")
+                    logger.debug("Frame capture successful")
                 else:
-                    logger.debug(f"Frame read failed in thread: ret={ret}")
+                    logger.debug(f"Frame capture failed: ret={ret}")
             except Exception as e:
-                logger.error(f"Exception in frame reading thread: {str(e)}")
+                logger.error(f"Exception during frame capture: {str(e)}")
 
-        # Start frame reading in a separate thread
-        frame_thread = threading.Thread(target=read_frame_thread)
+        # Start frame capture in a separate thread
+        frame_thread = threading.Thread(target=frame_capture_thread)
         frame_thread.daemon = True
         frame_thread.start()
 
@@ -100,17 +102,17 @@ def test_rtsp_connection(rtsp_url: str, timeout_seconds: int = 240) -> Dict[str,
         frame_thread.join(timeout=timeout_seconds)
 
         if frame_thread.is_alive():
-            logger.warning("Frame reading thread timed out")
+            logger.warning("Frame capture thread timed out")
             return {
                 "success": False,
-                "message": f"Frame reading timed out after {timeout_seconds} seconds. Method: {rtsp_url}",
-                "error": "Frame reading timeout"
+                "message": f"Frame capture timed out after {timeout_seconds} seconds using {rtsp_url}",
+                "error": "Frame capture timeout"
             }
 
-        # Check if frame reading was successful
+        # Check if frame capture was successful
         if frame_data["success"] and frame_data["frame"] is not None:
             height, width = frame_data["frame"].shape[:2]
-            logger.info(f"Read frame succeeded: {width}x{height}")
+            logger.info(f"Frame capture dimensions: {width}x{height}")
 
             # Perform AprilTag detection and get encoded image
             april_tag_result = _detect_april_tags_and_encode_image(frame_data["frame"])
